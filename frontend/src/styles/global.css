@@ -1,0 +1,45 @@
+:root {
+  color-scheme: light;
+  font-family: 'Alibaba PuHuiTi 3.0', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: #10233a;
+  background:
+    radial-gradient(circle at top left, rgba(48, 135, 255, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(18, 185, 169, 0.14), transparent 24%),
+    linear-gradient(180deg, #edf4ff 0%, #f5f9ff 42%, #eef5fb 100%);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  color: #10233a;
+  background: inherit;
+  font-family: inherit;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+}
+
+#app {
+  min-height: 100vh;
+}
