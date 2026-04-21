@@ -1,0 +1,7 @@
+# DataSource Config
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/ai_zero_code_platform?useSSL=false&useUnicode=true&characterEncoding=utf-8
+    username: root
+    password: lk200202071672
+    driver-class-name: com.mysql.cj.jdbc.Driver
