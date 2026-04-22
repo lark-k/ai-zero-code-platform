@@ -1,39 +1,58 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Grid } from 'ant-design-vue'
-import type { MenuProps } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import logoUrl from '@/assets/logo.png'
+import { userLogout } from '@/api/yonghuxiangguanjiekou.ts'
 import { headerMenuItems } from '@/config/menu'
+import { useLoginUserStore } from '@/stores/loginUser.ts'
 
+const loginUserStore = useLoginUserStore()
 const route = useRoute()
 const router = useRouter()
 
-const { useBreakpoint } = Grid
-const screens = useBreakpoint()
-
-const menuItems = computed<MenuProps['items']>(() =>
-  headerMenuItems.map((item) => ({
-    key: item.path,
-    label: item.label,
-    title: item.label,
-  })),
+const visibleMenuItems = computed(() =>
+  headerMenuItems.filter((item) => !item.adminOnly || loginUserStore.isAdmin),
 )
 
-const selectedKeys = computed(() => {
-  const currentMenu = [...headerMenuItems]
-    .sort((left, right) => right.path.length - left.path.length)
-    .find((item) => route.path === item.path || route.path.startsWith(`${item.path}/`))
+const displayName = computed(
+  () => loginUserStore.loginUser.userName || loginUserStore.loginUser.userAccount || '访客用户',
+)
+const displayInitial = computed(() => displayName.value.slice(0, 1).toUpperCase())
 
-  return currentMenu ? [currentMenu.path] : []
-})
+const goToLogin = () => {
+  router.push({
+    path: '/user/login',
+    query: route.fullPath !== '/' ? { redirect: route.fullPath } : undefined,
+  })
+}
 
-const menuMode = computed<MenuProps['mode']>(() => (screens.value.md ? 'horizontal' : 'inline'))
+const goToRegister = () => {
+  router.push({
+    path: '/user/register',
+    query: route.fullPath !== '/' ? { redirect: route.fullPath } : undefined,
+  })
+}
 
-const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
-  if (typeof key === 'string' && key !== route.path) {
-    router.push(key)
+const navigateTo = (path: string) => {
+  if (route.path !== path) {
+    router.push(path)
+  }
+}
+
+const handleLogout = async () => {
+  try {
+    const res = await userLogout()
+    if (res.data.code !== 0) {
+      message.error(res.data.message || '退出登录失败')
+      return
+    }
+    loginUserStore.resetLoginUser()
+    message.success('已退出登录')
+    await router.push('/')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '退出登录失败，请稍后重试')
   }
 }
 </script>
@@ -42,23 +61,45 @@ const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
   <a-layout-header class="global-header">
     <div class="global-header__inner">
       <RouterLink class="global-header__brand" to="/">
-        <img :src="logoUrl" alt="AI零代码生成平台" class="global-header__logo" />
-        <div class="global-header__title-wrap">
-          <span class="global-header__title">AI零代码生成平台</span>
-          <span class="global-header__subtitle">AIGC Universal Workspace</span>
+        <img :src="logoUrl" alt="AI 应用生成平台" class="global-header__logo" />
+        <div class="global-header__brand-text">
+          <span class="global-header__title">AI 零代码生成平台</span>
+          <span class="global-header__subtitle">Create your app with one prompt</span>
         </div>
       </RouterLink>
 
-      <a-menu
-        class="global-header__menu"
-        :items="menuItems"
-        :mode="menuMode"
-        :selected-keys="selectedKeys"
-        @click="handleMenuClick"
-      />
+      <nav class="global-header__nav">
+        <button
+          v-for="item in visibleMenuItems"
+          :key="item.key"
+          type="button"
+          class="global-header__nav-item"
+          :class="{ 'global-header__nav-item--active': route.path === item.path }"
+          @click="navigateTo(item.path)"
+        >
+          {{ item.label }}
+        </button>
+      </nav>
 
       <div class="global-header__actions">
-        <a-button type="primary" size="large">登录</a-button>
+        <template v-if="loginUserStore.isLoggedIn">
+          <div class="global-header__user">
+            <a-avatar :src="loginUserStore.loginUser.userAvatar" :size="40" class="global-header__avatar">
+              {{ displayInitial }}
+            </a-avatar>
+            <div class="global-header__user-text">
+              <span class="global-header__user-name">{{ displayName }}</span>
+              <span class="global-header__user-role">
+                {{ loginUserStore.isAdmin ? '管理员账号' : '已登录用户' }}
+              </span>
+            </div>
+          </div>
+          <a-button class="global-header__ghost-btn" @click="handleLogout">退出登录</a-button>
+        </template>
+        <template v-else>
+          <a-button class="global-header__ghost-btn" @click="goToRegister">注册</a-button>
+          <a-button type="primary" class="global-header__primary-btn" @click="goToLogin">登录</a-button>
+        </template>
       </div>
     </div>
   </a-layout-header>
@@ -72,123 +113,177 @@ const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
   height: auto;
   padding: 0;
   line-height: normal;
-  background: rgba(6, 20, 38, 0.88);
-  backdrop-filter: blur(16px);
-  box-shadow: 0 10px 30px rgba(6, 20, 38, 0.14);
+  background: rgba(255, 255, 255, 0.88);
+  border-bottom: 1px solid rgba(132, 161, 198, 0.12);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 8px 32px rgba(42, 70, 110, 0.08);
 }
 
 .global-header__inner {
-  width: min(1280px, calc(100% - 32px));
+  width: min(var(--page-max-width), calc(100% - 40px));
   margin: 0 auto;
-  padding: 16px 0;
+  padding: 14px 0;
   display: flex;
   align-items: center;
   gap: 24px;
-  flex-wrap: wrap;
 }
 
 .global-header__brand {
-  min-width: 0;
   display: flex;
   align-items: center;
   gap: 14px;
-  text-decoration: none;
+  min-width: 0;
 }
 
 .global-header__logo {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
   object-fit: cover;
-  box-shadow: 0 8px 20px rgba(26, 111, 223, 0.3);
+  box-shadow: 0 12px 24px rgba(61, 110, 192, 0.14);
 }
 
-.global-header__title-wrap {
+.global-header__brand-text {
   display: flex;
   flex-direction: column;
 }
 
 .global-header__title {
-  color: #f8fbff;
+  color: #2582ff;
   font-size: 18px;
   font-weight: 700;
-  letter-spacing: 0.04em;
 }
 
 .global-header__subtitle {
-  color: rgba(232, 241, 255, 0.68);
+  color: var(--text-secondary);
   font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
-.global-header__menu {
-  flex: 1;
-  min-width: 240px;
+.global-header__nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+}
+
+.global-header__nav-item {
+  position: relative;
+  padding: 12px 14px;
+  border: none;
   background: transparent;
-  border-bottom: none;
+  color: rgba(32, 48, 71, 0.86);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.global-header__nav-item::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -14px;
+  height: 3px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background 0.2s ease;
+}
+
+.global-header__nav-item:hover,
+.global-header__nav-item--active {
+  color: #2582ff;
+}
+
+.global-header__nav-item--active::after {
+  background: linear-gradient(90deg, #2d7ff9, #6e84ff);
 }
 
 .global-header__actions {
   margin-left: auto;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  gap: 12px;
 }
 
-:deep(.global-header__menu.ant-menu) {
-  color: rgba(232, 241, 255, 0.82);
-  background: transparent;
-}
-
-:deep(.global-header__menu.ant-menu-horizontal) {
-  justify-content: center;
-  border-bottom: none;
-}
-
-:deep(.global-header__menu.ant-menu-horizontal::after) {
-  display: none;
-}
-
-:deep(.global-header__menu.ant-menu-horizontal > .ant-menu-item),
-:deep(.global-header__menu.ant-menu-inline > .ant-menu-item) {
-  color: rgba(232, 241, 255, 0.82);
+.global-header__user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px 8px 8px;
+  background: rgba(243, 248, 255, 0.92);
+  border: 1px solid rgba(115, 149, 192, 0.12);
   border-radius: 999px;
-  margin-inline: 8px;
 }
 
-:deep(.global-header__menu.ant-menu-horizontal > .ant-menu-item-selected),
-:deep(.global-header__menu.ant-menu-inline > .ant-menu-item-selected) {
-  color: #ffffff;
-  background: linear-gradient(135deg, rgba(26, 111, 223, 0.88), rgba(15, 163, 177, 0.88));
+.global-header__avatar {
+  box-shadow: 0 8px 18px rgba(61, 110, 192, 0.14);
 }
 
-:deep(.global-header__menu.ant-menu-horizontal > .ant-menu-item::after) {
-  display: none;
+.global-header__user-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.global-header__user-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.global-header__user-role {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.global-header__ghost-btn {
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border-color: rgba(120, 151, 193, 0.22);
+  color: var(--text-main);
+  box-shadow: none;
+}
+
+.global-header__primary-btn {
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 999px;
+  box-shadow: 0 10px 24px rgba(45, 127, 249, 0.22);
+}
+
+@media (max-width: 1080px) {
+  .global-header__inner {
+    flex-wrap: wrap;
+  }
+
+  .global-header__nav {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+  }
 }
 
 @media (max-width: 767px) {
   .global-header__inner {
     width: min(100%, calc(100% - 24px));
-    gap: 16px;
+    gap: 14px;
   }
 
-  .global-header__brand,
-  .global-header__menu,
-  .global-header__actions {
+  .global-header__brand {
     width: 100%;
   }
 
   .global-header__actions {
-    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
   }
 
-  :deep(.global-header__menu.ant-menu-inline) {
-    border-inline-end: none;
-  }
-
-  :deep(.global-header__menu.ant-menu-inline > .ant-menu-item) {
-    margin: 4px 0;
+  .global-header__user {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 </style>

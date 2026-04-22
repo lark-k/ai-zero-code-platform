@@ -1,34 +1,49 @@
 <template>
   <a-layout-footer class="global-footer">
     <div class="global-footer__inner">
-      梁科原创项目 AI零代码生成平台（联系方式
+      <span>AI 应用生成平台</span>
+      <span class="global-footer__divider">·</span>
+      <span>让注册、登录和应用创建体验更轻盈</span>
+      <span class="global-footer__divider">·</span>
       <a class="global-footer__link" href="mailto:1573002354@qq.com">1573002354@qq.com</a>
-      ）
     </div>
   </a-layout-footer>
 </template>
 
 <style scoped>
 .global-footer {
-  padding: 18px 16px 24px;
+  padding: 10px 20px 28px;
   background: transparent;
 }
 
 .global-footer__inner {
-  width: min(1280px, 100%);
+  width: min(var(--page-max-width), 100%);
   margin: 0 auto;
-  padding: 18px 24px;
-  text-align: center;
-  color: #4a5d75;
+  padding: 0 8px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  color: rgba(74, 97, 126, 0.86);
   font-size: 14px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(111, 150, 188, 0.18);
-  border-radius: 18px;
-  box-shadow: 0 16px 40px rgba(31, 51, 74, 0.08);
+}
+
+.global-footer__divider {
+  color: rgba(74, 97, 126, 0.4);
 }
 
 .global-footer__link {
-  color: #1a6fdf;
-  text-decoration: none;
+  color: var(--brand-primary);
+}
+
+@media (max-width: 767px) {
+  .global-footer {
+    padding: 4px 12px 20px;
+  }
+
+  .global-footer__inner {
+    gap: 6px;
+    font-size: 13px;
+  }
 }
 </style>

@@ -1,11 +1,19 @@
 :root {
   color-scheme: light;
   font-family: 'Alibaba PuHuiTi 3.0', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  color: #10233a;
-  background:
-    radial-gradient(circle at top left, rgba(48, 135, 255, 0.18), transparent 28%),
-    radial-gradient(circle at top right, rgba(18, 185, 169, 0.14), transparent 24%),
-    linear-gradient(180deg, #edf4ff 0%, #f5f9ff 42%, #eef5fb 100%);
+  color: #16324f;
+  background: #f4f8ff;
+  --page-max-width: 1420px;
+  --brand-primary: #2d7ff9;
+  --brand-primary-deep: #4e66ff;
+  --brand-accent: #7a79ff;
+  --text-main: #16324f;
+  --text-secondary: #60748b;
+  --line-soft: rgba(97, 132, 178, 0.16);
+  --surface-white: rgba(255, 255, 255, 0.92);
+  --surface-card: rgba(255, 255, 255, 0.86);
+  --shadow-soft: 0 20px 60px rgba(55, 84, 126, 0.12);
+  --shadow-card: 0 24px 80px rgba(44, 72, 112, 0.14);
 }
 
 *,
@@ -20,15 +28,48 @@ body,
   min-height: 100%;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
+  position: relative;
   margin: 0;
   min-width: 320px;
-  color: #10233a;
-  background: inherit;
+  color: var(--text-main);
   font-family: inherit;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(120, 169, 255, 0.2), transparent 28%),
+    radial-gradient(circle at 80% 12%, rgba(126, 221, 211, 0.16), transparent 24%),
+    linear-gradient(180deg, #fbfdff 0%, #f4f8ff 48%, #edf4ff 100%);
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(111, 149, 197, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(111, 149, 197, 0.08) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 92%);
+  z-index: -2;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(126, 139, 255, 0.18), transparent 22%),
+    radial-gradient(circle at 48% 30%, rgba(65, 137, 255, 0.12), transparent 30%);
+  filter: blur(24px);
+  z-index: -3;
 }
 
 img {
@@ -38,8 +79,20 @@ img {
 
 a {
   color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
 }
 
 #app {
   min-height: 100vh;
+}
+
+::selection {
+  color: #ffffff;
+  background: rgba(45, 127, 249, 0.82);
 }

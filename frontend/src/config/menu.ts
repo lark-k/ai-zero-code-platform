@@ -2,17 +2,19 @@ export interface HeaderMenuItem {
   key: string
   label: string
   path: string
+  adminOnly?: boolean
 }
 
 export const headerMenuItems: HeaderMenuItem[] = [
   {
     key: 'home',
-    label: '首页',
+    label: '主页',
     path: '/',
   },
   {
-    key: 'about',
-    label: '关于平台',
-    path: '/about',
+    key: 'user-manage',
+    label: '用户管理',
+    path: '/admin/userManage',
+    adminOnly: true,
   },
 ]
