@@ -1,7 +1,15 @@
 package com.lk.aizerocodeplatform.controller;
 
+import com.lk.aizerocodeplatform.common.BaseResponse;
+import com.lk.aizerocodeplatform.common.ResultUtils;
+import com.lk.aizerocodeplatform.model.dto.UserLoginDTO;
+import com.lk.aizerocodeplatform.model.dto.UserRegisterDTO;
+import com.lk.aizerocodeplatform.model.vo.UserLoginVO;
 import com.mybatisflex.core.paginate.Page;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,16 +20,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import com.lk.aizerocodeplatform.model.entity.User;
 import com.lk.aizerocodeplatform.service.UserService;
 import org.springframework.web.bind.annotation.RestController;
+
 import java.util.List;
 
 /**
- *  控制层。
+ * 控制层。
  *
  * @author LK
  * @since 2026-04-21
  */
 @RestController
 @RequestMapping("/user")
+@Tag(name = "用户相关接口")
 public class UserController {
 
     @Resource
@@ -30,7 +40,7 @@ public class UserController {
     /**
      * 保存。
      *
-     * @param user 
+     * @param user
      * @return {@code true} 保存成功，{@code false} 保存失败
      */
     @PostMapping("save")
@@ -52,7 +62,7 @@ public class UserController {
     /**
      * 根据主键更新。
      *
-     * @param user 
+     * @param user
      * @return {@code true} 更新成功，{@code false} 更新失败
      */
     @PutMapping("update")
@@ -92,4 +102,41 @@ public class UserController {
         return userService.page(page);
     }
 
+    /**
+     * 用户注册
+     *
+     * @param userRegisterDTO 用户注册信息
+     */
+    @Operation(summary = "用户注册")
+    @PostMapping(value = "/register")
+    public BaseResponse<Long> userRegister(@RequestBody UserRegisterDTO userRegisterDTO) {
+        Long userId = userService.userRegister(userRegisterDTO);
+        return ResultUtils.success(userId);
+    }
+
+    /**
+     * 用户登录
+     *
+     * @param userLoginDTO 用户登录信息
+     */
+    @Operation(summary = "用户登录")
+    @PostMapping(value = "/login")
+    public BaseResponse<UserLoginVO> userLogin(@RequestBody UserLoginDTO userLoginDTO, HttpServletRequest request) {
+        UserLoginVO userLoginVO = userService.userLogin(userLoginDTO, request);
+        return ResultUtils.success(userLoginVO);
+    }
+
+    @Operation(summary = "获取当前用户登录信息")
+    @GetMapping(value = "/getCurrentUser")
+    public BaseResponse<UserLoginVO> getCurrentUserInfo(HttpServletRequest request) {
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        return ResultUtils.success(currentUserLoginVo);
+    }
+
+    @Operation(summary = "用户注销")
+    @GetMapping(value = "/logout")
+    public BaseResponse<?> userLogout(HttpServletRequest request) {
+        userService.userLogout(request);
+        return ResultUtils.success(null);
+    }
 }

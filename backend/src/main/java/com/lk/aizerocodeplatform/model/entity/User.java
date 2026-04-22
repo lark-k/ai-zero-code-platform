@@ -94,9 +94,9 @@ public class User implements Serializable {
     private LocalDateTime updateTime;
 
     /**
-     * 是否删除
+     * 是否删除(配置逻辑删除)
      */
-    @Column("isDelete")
+    @Column(value = "isDelete", isLogicDelete = true)
     private Integer isDelete;
 
 }

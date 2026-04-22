@@ -32,3 +32,8 @@ mybatis-flex: # 配置mybatis-flex
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   mapper-locations: classpath*:/mapper/**/*.xml
+  global-config:
+    # 配置逻辑删除
+    logic-delete-column: isDelete
+    normal-value-of-logic-delete: 0
+    deleted-value-of-logic-delete: 1
