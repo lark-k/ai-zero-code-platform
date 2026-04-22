@@ -5,6 +5,7 @@ import com.lk.aizerocodeplatform.common.BaseResponse;
 import com.lk.aizerocodeplatform.common.ResultUtils;
 import com.lk.aizerocodeplatform.constant.UserConstant;
 import com.lk.aizerocodeplatform.model.dto.*;
+import com.lk.aizerocodeplatform.model.entity.User;
 import com.lk.aizerocodeplatform.model.vo.UserLoginVO;
 import com.lk.aizerocodeplatform.model.vo.UserVO;
 import com.mybatisflex.core.paginate.Page;
@@ -117,7 +118,7 @@ public class UserController {
     }
 
     /**
-     * 条件分页查询
+     * 条件分页查询（仅支持管理员调用）
      *
      * @param queryUserDTO 分页查询条件
      */
@@ -126,6 +127,32 @@ public class UserController {
     @PostMapping("/page")
     public BaseResponse<Page<UserVO>> getUserPage(@RequestBody QueryUserDTO queryUserDTO) {
         return ResultUtils.success(userService.pageQuery(queryUserDTO));
+    }
+
+    /**
+     * 根据id查询用户（仅支持管理员调用）
+     *
+     * @param id 用户id
+     */
+    @Operation(summary = "根据id查询用户")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GetMapping(value = "/get")
+    public BaseResponse<User> getUserById(Long id) {
+        return ResultUtils.success(userService.getById(id));
+    }
+
+    /**
+     * 根据id查询用户脱敏后的数据（仅支持管理员调用）
+     *
+     * @param id 用户id
+     */
+    @Operation(summary = "根据id查询脱敏后的用户")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GetMapping(value = "/get/vo")
+    public BaseResponse<UserVO> getUserVoById(Long id) {
+        User user = userService.getById(id);
+        UserVO userVO = userService.getUserVoByUser(user);
+        return ResultUtils.success(userVO);
     }
 
 }
