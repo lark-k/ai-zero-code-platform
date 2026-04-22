@@ -1,11 +1,14 @@
 package com.lk.aizerocodeplatform.service;
 
-import com.lk.aizerocodeplatform.model.dto.UserLoginDTO;
-import com.lk.aizerocodeplatform.model.dto.UserRegisterDTO;
+import com.lk.aizerocodeplatform.model.dto.*;
 import com.lk.aizerocodeplatform.model.vo.UserLoginVO;
+import com.lk.aizerocodeplatform.model.vo.UserVO;
+import com.mybatisflex.core.paginate.Page;
+import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
 import com.lk.aizerocodeplatform.model.entity.User;
 import jakarta.servlet.http.HttpServletRequest;
+
 
 /**
  * 服务层。
@@ -61,4 +64,52 @@ public interface UserService extends IService<User> {
      * @return 脱敏后的用户信息
      */
     UserLoginVO desensitizeUserInfo(User user);
+
+    /**
+     * 新增用户
+     *
+     * @param addUserDTO 用户信息
+     * @return 用户id
+     */
+    Long saveUser(AddUserDTO addUserDTO);
+
+    /**
+     * 更新用户
+     *
+     * @param updateUserDTO 用户信息
+     * @return 是否更新成功
+     */
+    Boolean updateUser(UpdateUserDTO updateUserDTO);
+
+    /**
+     * 删除用户
+     *
+     * @param deleteUserDTO 用户信息
+     * @return 是否删除成功
+     */
+    Boolean deleteUser(DeleteUserDTO deleteUserDTO);
+
+    /**
+     * 分页查询
+     *
+     * @param queryUserDTO 查询信息
+     * @return 分页查询后的用户列表
+     */
+    Page<UserVO> pageQuery(QueryUserDTO queryUserDTO);
+
+    /**
+     * 通过查询信息封装查询条件
+     *
+     * @param queryUserDTO 查询信息
+     * @return 查询条件
+     */
+    QueryWrapper getQueryWrapper(QueryUserDTO queryUserDTO);
+
+    /**
+     * 将user转换为脱敏后的userVO
+     *
+     * @param user 用户源信息
+     * @return 脱敏后的用户信息
+     */
+    UserVO getUserVoByUser(User user);
 }

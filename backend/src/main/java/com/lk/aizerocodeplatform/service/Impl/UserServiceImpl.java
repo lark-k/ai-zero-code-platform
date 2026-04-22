@@ -6,9 +6,10 @@ import com.lk.aizerocodeplatform.constant.UserConstant;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.exception.ThrowUtils;
-import com.lk.aizerocodeplatform.model.dto.UserLoginDTO;
-import com.lk.aizerocodeplatform.model.dto.UserRegisterDTO;
+import com.lk.aizerocodeplatform.model.dto.*;
 import com.lk.aizerocodeplatform.model.vo.UserLoginVO;
+import com.lk.aizerocodeplatform.model.vo.UserVO;
+import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.lk.aizerocodeplatform.model.entity.User;
@@ -18,6 +19,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
+
+import java.util.List;
 
 /**
  * 服务层实现。
@@ -109,5 +112,89 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         UserLoginVO userLoginVO = new UserLoginVO();
         BeanUtils.copyProperties(user, userLoginVO);
         return userLoginVO;
+    }
+
+    @Override
+    public Long saveUser(AddUserDTO addUserDTO) {
+        ThrowUtils.throwIf(addUserDTO == null, ErrorCode.PARAMS_ERROR);
+        String userAccount = addUserDTO.getUserAccount();
+        long count = count(new QueryWrapper().eq("userAccount", userAccount));
+        if (count > 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"账号已存在");
+        }
+        User user = new User();
+        BeanUtils.copyProperties(addUserDTO, user);
+        // 增加用户时设置一个默认密码
+        user.setUserPassword(encryptPassword("12345678"));
+        save(user);
+        return user.getId();
+    }
+
+    @Override
+    public Boolean updateUser(UpdateUserDTO updateUserDTO) {
+        ThrowUtils.throwIf(updateUserDTO == null, ErrorCode.PARAMS_ERROR);
+        Long id = updateUserDTO.getId();
+        if (id == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        if (getById(id) == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"用户不存在");
+        }
+        User user = new User();
+        BeanUtils.copyProperties(updateUserDTO, user);
+        return updateById(user);
+    }
+
+    @Override
+    public Boolean deleteUser(DeleteUserDTO deleteUserDTO) {
+        ThrowUtils.throwIf(deleteUserDTO == null, ErrorCode.PARAMS_ERROR);
+        Long userId = deleteUserDTO.getId();
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        if(getById(userId) == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"用户不存在");
+        }
+        return removeById(deleteUserDTO.getId());
+    }
+
+    @Override
+    public Page<UserVO> pageQuery(QueryUserDTO queryUserDTO) {
+        int pageNum = queryUserDTO.getPageNum();
+        int pageSize = queryUserDTO.getPageSize();
+        Page<User> userPage = this.page(Page.of(pageNum, pageSize), getQueryWrapper(queryUserDTO));
+        List<UserVO> userVOList = userPage.getRecords().stream()
+                .map((this::getUserVoByUser))
+                .toList();
+        Page<UserVO> userVoPage = new Page<>(pageNum, pageSize);
+        userVoPage.setRecords(userVOList);
+        userVoPage.setTotalPage(userPage.getTotalPage());
+        userVoPage.setTotalRow(userPage.getTotalRow());
+        return userVoPage;
+    }
+
+    @Override
+    public QueryWrapper getQueryWrapper(QueryUserDTO queryUserDTO) {
+        Long id = queryUserDTO.getId();
+        String userName = queryUserDTO.getUserName();
+        String userAccount = queryUserDTO.getUserAccount();
+        String userProfile = queryUserDTO.getUserProfile();
+        String userRole = queryUserDTO.getUserRole();
+        String sortField = queryUserDTO.getSortField();
+        String sortOrder = queryUserDTO.getSortOrder();
+        return QueryWrapper.create()
+                .eq("id", id)
+                .eq("userRole", userRole)
+                .like("userAccount", userAccount)
+                .like("userProfile", userProfile)
+                .like("userName", userName)
+                .orderBy(sortField, "ascend".equals(sortOrder));
+    }
+
+    @Override
+    public UserVO getUserVoByUser(User user) {
+        UserVO userVO = new UserVO();
+        BeanUtils.copyProperties(user, userVO);
+        return userVO;
     }
 }
