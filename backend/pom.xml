@@ -74,6 +74,12 @@
             <artifactId>mybatis-flex-codegen</artifactId>
             <version>1.11.6</version>
         </dependency>
+
+        <!-- 引入aop切面必要的依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
