@@ -7,6 +7,7 @@ import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.exception.ThrowUtils;
+import com.lk.aizerocodeplatform.parser.CodeParseExecutor;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -101,7 +102,8 @@ public class AiCodeGenFacade {
                 .doOnComplete(() -> {
                     try {
                         String completeHtmlCode = stringBuilder.toString();
-                        HtmlCodeResult htmlCodeResult = CodeParser.parseHtmlCode(completeHtmlCode);
+                        // 调用统一的解析器执行器，根据生成代码的方式决定调用哪一个解析器
+                        HtmlCodeResult htmlCodeResult = (HtmlCodeResult)CodeParseExecutor.executeParser(completeHtmlCode, CodeGenTypeEnum.HTML);
                         File dir = CodeFileSaver.saveHtml(htmlCodeResult);
                         log.info("文件保存成功，路径为：{}", dir.getAbsolutePath());
                     } catch (Exception e) {
@@ -123,7 +125,8 @@ public class AiCodeGenFacade {
                 .doOnComplete(() -> {
                     try {
                         String completeMultiFileCode = stringBuilder.toString();
-                        MultiFileCodeResult multiFileCodeResult = CodeParser.parseMultiFileCode(completeMultiFileCode);
+                        // 调用统一的解析器执行器，根据生成代码的方式决定调用哪一个解析器
+                        MultiFileCodeResult multiFileCodeResult = (MultiFileCodeResult) CodeParseExecutor.executeParser(completeMultiFileCode, CodeGenTypeEnum.MULTI_FILE);
                         File dir = CodeFileSaver.saveMultiFile(multiFileCodeResult);
                         log.info("文件保存成功，路径为：{}", dir.getAbsolutePath());
                     } catch (Exception e) {
