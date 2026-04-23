@@ -8,6 +8,7 @@ import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.exception.ThrowUtils;
 import com.lk.aizerocodeplatform.parser.CodeParseExecutor;
+import com.lk.aizerocodeplatform.saver.CodeFileSaveExecutor;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -55,7 +56,7 @@ public class AiCodeGenFacade {
      */
     private File generateCodeHtmlAndSave(String userMessage) {
         HtmlCodeResult htmlCodeResult = aiCodeGenService.generateHtmlCode(userMessage);
-        return CodeFileSaver.saveHtml(htmlCodeResult);
+        return CodeFileSaveExecutor.executeCodeFileSave(htmlCodeResult,CodeGenTypeEnum.HTML);
     }
 
     /**
@@ -66,7 +67,7 @@ public class AiCodeGenFacade {
      */
     private File generateCodeMultiFileAndSave(String userMessage) {
         MultiFileCodeResult multiFileCodeResult = aiCodeGenService.generateMultiFileCode(userMessage);
-        return CodeFileSaver.saveMultiFile(multiFileCodeResult);
+        return CodeFileSaveExecutor.executeCodeFileSave(multiFileCodeResult,CodeGenTypeEnum.MULTI_FILE);
     }
 
     /**
@@ -103,8 +104,9 @@ public class AiCodeGenFacade {
                     try {
                         String completeHtmlCode = stringBuilder.toString();
                         // 调用统一的解析器执行器，根据生成代码的方式决定调用哪一个解析器
-                        HtmlCodeResult htmlCodeResult = (HtmlCodeResult)CodeParseExecutor.executeParser(completeHtmlCode, CodeGenTypeEnum.HTML);
-                        File dir = CodeFileSaver.saveHtml(htmlCodeResult);
+                        HtmlCodeResult htmlCodeResult = (HtmlCodeResult) CodeParseExecutor.executeParser(completeHtmlCode, CodeGenTypeEnum.HTML);
+                        // 调用统一的代码文件保存执行器，根据生成的代码方式决定调用哪一个文件保存模板
+                        File dir = CodeFileSaveExecutor.executeCodeFileSave(htmlCodeResult, CodeGenTypeEnum.HTML);
                         log.info("文件保存成功，路径为：{}", dir.getAbsolutePath());
                     } catch (Exception e) {
                         log.error("保存失败：{}", e.getMessage());
@@ -127,7 +129,8 @@ public class AiCodeGenFacade {
                         String completeMultiFileCode = stringBuilder.toString();
                         // 调用统一的解析器执行器，根据生成代码的方式决定调用哪一个解析器
                         MultiFileCodeResult multiFileCodeResult = (MultiFileCodeResult) CodeParseExecutor.executeParser(completeMultiFileCode, CodeGenTypeEnum.MULTI_FILE);
-                        File dir = CodeFileSaver.saveMultiFile(multiFileCodeResult);
+                        // 调用统一的代码文件保存执行器，根据生成的代码方式决定调用哪一个文件保存模板
+                        File dir = CodeFileSaveExecutor.executeCodeFileSave(multiFileCodeResult, CodeGenTypeEnum.MULTI_FILE);
                         log.info("文件保存成功，路径为：{}", dir.getAbsolutePath());
                     } catch (Exception e) {
                         log.error("保存失败：{}", e.getMessage());

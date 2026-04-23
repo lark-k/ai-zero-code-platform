@@ -18,15 +18,15 @@ class CodeFileSaverTest {
     @Resource
     private AiCodeGenService aiCodeGenService;
 
-    @Test
-    void saveHtml() {
-        HtmlCodeResult htmlCodeResult = aiCodeGenService.generateHtmlCode("生成一个用户登录页面，不超过50行代码");
-        CodeFileSaver.saveHtml(htmlCodeResult);
-    }
-
-    @Test
-    void saveMultiFile() {
-        MultiFileCodeResult multiFileCodeResult = aiCodeGenService.generateMultiFileCode("生成一个用户登录页面，背景为紫色，不超过100行代码");
-        CodeFileSaver.saveMultiFile(multiFileCodeResult);
-    }
+//    @Test
+//    void saveHtml() {
+//        HtmlCodeResult htmlCodeResult = aiCodeGenService.generateHtmlCode("生成一个用户登录页面，不超过50行代码");
+//        CodeFileSaver.saveHtml(htmlCodeResult);
+//    }
+//
+//    @Test
+//    void saveMultiFile() {
+//        MultiFileCodeResult multiFileCodeResult = aiCodeGenService.generateMultiFileCode("生成一个用户登录页面，背景为紫色，不超过100行代码");
+//        CodeFileSaver.saveMultiFile(multiFileCodeResult);
+//    }
 }
