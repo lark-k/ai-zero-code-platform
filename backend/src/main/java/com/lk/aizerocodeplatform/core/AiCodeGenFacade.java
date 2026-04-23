@@ -56,7 +56,7 @@ public class AiCodeGenFacade {
      */
     private File generateCodeHtmlAndSave(String userMessage) {
         HtmlCodeResult htmlCodeResult = aiCodeGenService.generateHtmlCode(userMessage);
-        return CodeFileSaveExecutor.executeCodeFileSave(htmlCodeResult,CodeGenTypeEnum.HTML);
+        return CodeFileSaveExecutor.executeCodeFileSave(htmlCodeResult, CodeGenTypeEnum.HTML);
     }
 
     /**
@@ -67,7 +67,7 @@ public class AiCodeGenFacade {
      */
     private File generateCodeMultiFileAndSave(String userMessage) {
         MultiFileCodeResult multiFileCodeResult = aiCodeGenService.generateMultiFileCode(userMessage);
-        return CodeFileSaveExecutor.executeCodeFileSave(multiFileCodeResult,CodeGenTypeEnum.MULTI_FILE);
+        return CodeFileSaveExecutor.executeCodeFileSave(multiFileCodeResult, CodeGenTypeEnum.MULTI_FILE);
     }
 
     /**
@@ -97,21 +97,8 @@ public class AiCodeGenFacade {
      * @return 文件
      */
     private Flux<String> generateCodeHtmlAndSaveStream(String userMessage) {
-        StringBuilder stringBuilder = new StringBuilder();
-        return aiCodeGenService.generateHtmlCodeStream(userMessage)
-                .doOnNext(stringBuilder::append)
-                .doOnComplete(() -> {
-                    try {
-                        String completeHtmlCode = stringBuilder.toString();
-                        // 调用统一的解析器执行器，根据生成代码的方式决定调用哪一个解析器
-                        HtmlCodeResult htmlCodeResult = (HtmlCodeResult) CodeParseExecutor.executeParser(completeHtmlCode, CodeGenTypeEnum.HTML);
-                        // 调用统一的代码文件保存执行器，根据生成的代码方式决定调用哪一个文件保存模板
-                        File dir = CodeFileSaveExecutor.executeCodeFileSave(htmlCodeResult, CodeGenTypeEnum.HTML);
-                        log.info("文件保存成功，路径为：{}", dir.getAbsolutePath());
-                    } catch (Exception e) {
-                        log.error("保存失败：{}", e.getMessage());
-                    }
-                });
+        Flux<String> codeStream = aiCodeGenService.generateHtmlCodeStream(userMessage);
+        return processCodeStream(codeStream, CodeGenTypeEnum.HTML);
     }
 
     /**
@@ -121,16 +108,28 @@ public class AiCodeGenFacade {
      * @return 文件
      */
     private Flux<String> generateCodeMultiFileAndSaveStream(String userMessage) {
+        Flux<String> codeStream = aiCodeGenService.generateMultiFileCodeStream(userMessage);
+        return processCodeStream(codeStream, CodeGenTypeEnum.MULTI_FILE);
+    }
+
+    /**
+     * 通用代码流处理方法
+     *
+     * @param codeStream      代码流
+     * @param codeGenTypeEnum 生成代码方式
+     * @return 流式响应
+     */
+    private Flux<String> processCodeStream(Flux<String> codeStream, CodeGenTypeEnum codeGenTypeEnum) {
         StringBuilder stringBuilder = new StringBuilder();
-        return aiCodeGenService.generateMultiFileCodeStream(userMessage)
+        return codeStream
                 .doOnNext(stringBuilder::append)
                 .doOnComplete(() -> {
                     try {
                         String completeMultiFileCode = stringBuilder.toString();
                         // 调用统一的解析器执行器，根据生成代码的方式决定调用哪一个解析器
-                        MultiFileCodeResult multiFileCodeResult = (MultiFileCodeResult) CodeParseExecutor.executeParser(completeMultiFileCode, CodeGenTypeEnum.MULTI_FILE);
+                        MultiFileCodeResult multiFileCodeResult = (MultiFileCodeResult) CodeParseExecutor.executeParser(completeMultiFileCode, codeGenTypeEnum);
                         // 调用统一的代码文件保存执行器，根据生成的代码方式决定调用哪一个文件保存模板
-                        File dir = CodeFileSaveExecutor.executeCodeFileSave(multiFileCodeResult, CodeGenTypeEnum.MULTI_FILE);
+                        File dir = CodeFileSaveExecutor.executeCodeFileSave(multiFileCodeResult, codeGenTypeEnum);
                         log.info("文件保存成功，路径为：{}", dir.getAbsolutePath());
                     } catch (Exception e) {
                         log.error("保存失败：{}", e.getMessage());
