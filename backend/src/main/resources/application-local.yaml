@@ -5,3 +5,13 @@ spring:
     username: root
     password: lk200202071672
     driver-class-name: com.mysql.cj.jdbc.Driver
+
+langchain4j:
+  open-ai:
+    chat-model:
+      api-key: sk-7ef8360fe7ee4cbabca95f0b0d631145
+      base-url: https://api.deepseek.com
+      model-name: deepseek-chat
+      log-requests: true
+      log-responses: true
+      max-tokens: 8192
