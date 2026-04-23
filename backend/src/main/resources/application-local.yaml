@@ -15,3 +15,6 @@ langchain4j:
       log-requests: true
       log-responses: true
       max-tokens: 8192
+      # 配置模型输出json类型的数据
+      strict-json-schema: true
+      response-format: json_object
