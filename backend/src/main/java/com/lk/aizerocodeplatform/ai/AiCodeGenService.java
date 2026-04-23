@@ -3,6 +3,7 @@ package com.lk.aizerocodeplatform.ai;
 import com.lk.aizerocodeplatform.ai.model.HtmlCodeResult;
 import com.lk.aizerocodeplatform.ai.model.MultiFileCodeResult;
 import dev.langchain4j.service.SystemMessage;
+import reactor.core.publisher.Flux;
 
 /**
  * @Author 梁科
@@ -28,4 +29,22 @@ public interface AiCodeGenService {
      */
     @SystemMessage(fromResource = "prompts/multi_file_system_prompt.txt")
     MultiFileCodeResult generateMultiFileCode(String userMessage);
+
+    /**
+     * 生成HTML代码（流式）
+     *
+     * @param userMessage 用户提示词
+     * @return ai回复内容
+     */
+    @SystemMessage(fromResource = "prompts/single_file_system_prompt.txt")
+    Flux<String> generateHtmlCodeStream(String userMessage);
+
+    /**
+     * 生成多文件代码（流式）
+     *
+     * @param userMessage 用户提示词
+     * @return ai回复内容
+     */
+    @SystemMessage(fromResource = "prompts/multi_file_system_prompt.txt")
+    Flux<String> generateMultiFileCodeStream(String userMessage);
 }

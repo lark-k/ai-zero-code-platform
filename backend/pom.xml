@@ -93,6 +93,14 @@
             <version>1.1.0-beta7</version>
         </dependency>
 
+        <!-- 引入langchain4j+recator方案流式输出必要的依赖 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-reactor</artifactId>
+            <version>1.1.0-beta7</version>
+        </dependency>
+
+
 
 
     </dependencies>
