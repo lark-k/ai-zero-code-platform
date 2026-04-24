@@ -125,11 +125,11 @@ public class AiCodeGenFacade {
                 .doOnNext(stringBuilder::append)
                 .doOnComplete(() -> {
                     try {
-                        String completeMultiFileCode = stringBuilder.toString();
+                        String completeCode = stringBuilder.toString();
                         // 调用统一的解析器执行器，根据生成代码的方式决定调用哪一个解析器
-                        MultiFileCodeResult multiFileCodeResult = (MultiFileCodeResult) CodeParseExecutor.executeParser(completeMultiFileCode, codeGenTypeEnum);
+                        Object commonParseResult =CodeParseExecutor.executeParser(completeCode, codeGenTypeEnum);
                         // 调用统一的代码文件保存执行器，根据生成的代码方式决定调用哪一个文件保存模板
-                        File dir = CodeFileSaveExecutor.executeCodeFileSave(multiFileCodeResult, codeGenTypeEnum);
+                        File dir = CodeFileSaveExecutor.executeCodeFileSave(commonParseResult, codeGenTypeEnum);
                         log.info("文件保存成功，路径为：{}", dir.getAbsolutePath());
                     } catch (Exception e) {
                         log.error("保存失败：{}", e.getMessage());
