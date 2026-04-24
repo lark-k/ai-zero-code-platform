@@ -3,7 +3,9 @@ package com.lk.aizerocodeplatform.controller;
 import com.lk.aizerocodeplatform.common.BaseResponse;
 import com.lk.aizerocodeplatform.common.ResultUtils;
 import com.lk.aizerocodeplatform.model.dto.app.AddAppDTO;
+import com.lk.aizerocodeplatform.model.dto.app.DeleteAppDTO;
 import com.lk.aizerocodeplatform.model.dto.app.UpdateAppDTO;
+import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.mybatisflex.core.paginate.Page;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -37,15 +39,27 @@ public class AppController {
     @Resource
     private AppService appService;
 
-    @Operation(description = "增加应用")
+    @Operation(summary = "增加应用")
     @PostMapping("/addApp")
     public BaseResponse<Long> addApp(@RequestBody AddAppDTO addAppDTO, HttpServletRequest request) {
         return ResultUtils.success(appService.addApp(addAppDTO, request));
     }
-    @Operation(description = "修改应用")
+
+    @Operation(summary = "修改应用")
     @PostMapping("/updateApp")
     public BaseResponse<Boolean> updateApp(@RequestBody UpdateAppDTO updateAppDTO, HttpServletRequest request) {
         return ResultUtils.success(appService.updateApp(updateAppDTO, request));
     }
 
+    @Operation(summary = "删除应用")
+    @PostMapping("/deleteApp")
+    public BaseResponse<Boolean> deleteApp(@RequestBody DeleteAppDTO deleteAppDTO, HttpServletRequest request) {
+        return ResultUtils.success(appService.deleteApp(deleteAppDTO, request));
+    }
+
+    @Operation(summary = "根据id查询应用信息")
+    @GetMapping("/getAppById")
+    public BaseResponse<AppVO> getAppVoById(Long id) {
+        return ResultUtils.success(appService.getAppById(id));
+    }
 }

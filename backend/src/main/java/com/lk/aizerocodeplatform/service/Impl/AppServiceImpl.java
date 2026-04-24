@@ -5,8 +5,12 @@ import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.exception.ThrowUtils;
 import com.lk.aizerocodeplatform.model.dto.app.AddAppDTO;
+import com.lk.aizerocodeplatform.model.dto.app.DeleteAppDTO;
 import com.lk.aizerocodeplatform.model.dto.app.UpdateAppDTO;
+import com.lk.aizerocodeplatform.model.entity.User;
+import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import com.lk.aizerocodeplatform.model.vo.user.UserVO;
 import com.lk.aizerocodeplatform.service.UserService;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.lk.aizerocodeplatform.model.entity.App;
@@ -14,6 +18,7 @@ import com.lk.aizerocodeplatform.mapper.AppMapper;
 import com.lk.aizerocodeplatform.service.AppService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -80,5 +85,52 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用更新失败");
         }
         return true;
+    }
+
+    @Override
+    public Boolean deleteApp(DeleteAppDTO deleteAppDTO, HttpServletRequest request) {
+        ThrowUtils.throwIf(deleteAppDTO == null, ErrorCode.PARAMS_ERROR);
+        // 获取应用id
+        Long id = deleteAppDTO.getId();
+        // 获取当前登录用户的脱敏信息
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        // 判断用户是否登录
+        ThrowUtils.throwIf(currentUserLoginVo == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 判断要删除的id是否存在
+        App app = getById(id);
+        ThrowUtils.throwIf(app == null, ErrorCode.OPERATION_ERROR, "应用不存在");
+        if (!app.getUserId().equals(currentUserLoginVo.getId())) {
+            // 只能删除自己的应用
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        boolean success = removeById(id);
+        if (!success) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用删除失败");
+        }
+        return true;
+    }
+
+    @Override
+    public AppVO getAppById(Long id) {
+        ThrowUtils.throwIf(id == null, ErrorCode.PARAMS_ERROR);
+        // 查询数据库得到应用信息
+        App app = getById(id);
+        // 判断应用是否存在
+        ThrowUtils.throwIf(app == null, ErrorCode.OPERATION_ERROR, "应用不存在");
+        return getAppVoByApp(app);
+    }
+
+    @Override
+    public AppVO getAppVoByApp(App app) {
+        ThrowUtils.throwIf(app == null, ErrorCode.PARAMS_ERROR);
+        AppVO appVo = new AppVO();
+        // 整合应用信息
+        BeanUtils.copyProperties(app, appVo);
+        Long userId = app.getUserId();
+        User user = userService.getById(userId);
+        UserVO userVo = userService.getUserVoByUser(user);
+        // 整合作者信息
+        appVo.setUserVo(userVo);
+        return appVo;
     }
 }
