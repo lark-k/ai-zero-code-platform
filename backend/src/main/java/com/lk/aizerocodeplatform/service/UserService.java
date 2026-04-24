@@ -1,8 +1,8 @@
 package com.lk.aizerocodeplatform.service;
 
-import com.lk.aizerocodeplatform.model.dto.*;
-import com.lk.aizerocodeplatform.model.vo.UserLoginVO;
-import com.lk.aizerocodeplatform.model.vo.UserVO;
+import com.lk.aizerocodeplatform.model.dto.user.*;
+import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import com.lk.aizerocodeplatform.model.vo.user.UserVO;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;

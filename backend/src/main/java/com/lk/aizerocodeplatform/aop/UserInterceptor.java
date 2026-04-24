@@ -5,7 +5,7 @@ import com.lk.aizerocodeplatform.constant.UserConstant;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.exception.ThrowUtils;
-import com.lk.aizerocodeplatform.model.vo.UserLoginVO;
+import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
 import com.lk.aizerocodeplatform.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;

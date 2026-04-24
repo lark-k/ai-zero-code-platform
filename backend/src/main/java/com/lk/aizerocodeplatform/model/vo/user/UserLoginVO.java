@@ -1,4 +1,4 @@
-package com.lk.aizerocodeplatform.model.vo;
+package com.lk.aizerocodeplatform.model.vo.user;
 
 
 import lombok.Data;

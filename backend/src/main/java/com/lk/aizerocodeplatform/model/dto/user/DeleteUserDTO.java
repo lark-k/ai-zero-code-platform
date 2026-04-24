@@ -1,4 +1,4 @@
-package com.lk.aizerocodeplatform.model.dto;
+package com.lk.aizerocodeplatform.model.dto.user;
 
 import com.lk.aizerocodeplatform.common.DeleteRequest;
 import lombok.Data;
