@@ -1,9 +1,6 @@
 package com.lk.aizerocodeplatform.service;
 
-import com.lk.aizerocodeplatform.model.dto.app.AddAppDTO;
-import com.lk.aizerocodeplatform.model.dto.app.DeleteAppDTO;
-import com.lk.aizerocodeplatform.model.dto.app.QueryAppDTO;
-import com.lk.aizerocodeplatform.model.dto.app.UpdateAppDTO;
+import com.lk.aizerocodeplatform.model.dto.app.*;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -96,4 +93,35 @@ public interface AppService extends IService<App> {
      */
     Page<AppVO> getAppVoPageForGood(QueryAppDTO queryAppDTO);
 
+    /**
+     * 管理员删除应用
+     *
+     * @param deleteAppDTO 删除请求信息
+     * @return 是否删除成功
+     */
+    Boolean deleteAppByAdmin(DeleteAppDTO deleteAppDTO);
+
+    /**
+     * 管理员更新应用
+     *
+     * @param appAdminUpdateDTO 更新请求信息
+     * @return 是否更新成功
+     */
+    Boolean updateAppByAdmin(AppAdminUpdateDTO appAdminUpdateDTO);
+
+    /**
+     * 管理员分页查询
+     *
+     * @param queryAppDTO 分页查询请求
+     * @return 分页查询得到的信息
+     */
+    Page<AppVO> getAppVoPageByAdmin(QueryAppDTO queryAppDTO);
+
+    /**
+     * 管理员查询单个应用详细信息
+     *
+     * @param id 应用id
+     * @return 应用信息（包括用户脱敏信息）
+     */
+    AppVO getAppVoByAdmin(Long id);
 }

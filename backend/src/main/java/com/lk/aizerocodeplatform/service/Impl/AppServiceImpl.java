@@ -6,10 +6,7 @@ import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.exception.ThrowUtils;
-import com.lk.aizerocodeplatform.model.dto.app.AddAppDTO;
-import com.lk.aizerocodeplatform.model.dto.app.DeleteAppDTO;
-import com.lk.aizerocodeplatform.model.dto.app.QueryAppDTO;
-import com.lk.aizerocodeplatform.model.dto.app.UpdateAppDTO;
+import com.lk.aizerocodeplatform.model.dto.app.*;
 import com.lk.aizerocodeplatform.model.entity.User;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
@@ -230,5 +227,71 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         appVoPage.setRecords(pageOfAppVoRecords);
         appVoPage.setTotalPage(pageOfApp.getTotalPage());
         return appVoPage;
+    }
+
+    @Override
+    public Boolean deleteAppByAdmin(DeleteAppDTO deleteAppDTO) {
+        ThrowUtils.throwIf(deleteAppDTO == null, ErrorCode.PARAMS_ERROR);
+        // 准备删除应用的id
+        Long id = deleteAppDTO.getId();
+        App app = getById(id);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        boolean success = removeById(id);
+        if (!success) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用删除失败");
+        }
+        return true;
+    }
+
+    @Override
+    public Boolean updateAppByAdmin(AppAdminUpdateDTO appAdminUpdateDTO) {
+        ThrowUtils.throwIf(appAdminUpdateDTO == null, ErrorCode.PARAMS_ERROR);
+        Long id = appAdminUpdateDTO.getId();
+        String appName = appAdminUpdateDTO.getAppName();
+        String cover = appAdminUpdateDTO.getCover();
+        Integer priority = appAdminUpdateDTO.getPriority();
+        ThrowUtils.throwIf(id == null, ErrorCode.PARAMS_ERROR);
+        // 查询该id是否存在应用
+        App app = getById(id);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        App newApp = new App();
+        newApp.setId(id);
+        newApp.setAppName(appName);
+        newApp.setCover(cover);
+        newApp.setPriority(priority);
+        newApp.setEditTime(LocalDateTime.now());
+        boolean success = updateById(newApp);
+        if (!success) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用更新失败");
+        }
+        return true;
+    }
+
+    @Override
+    public Page<AppVO> getAppVoPageByAdmin(QueryAppDTO queryAppDTO) {
+        ThrowUtils.throwIf(queryAppDTO == null, ErrorCode.PARAMS_ERROR);
+        int pageNum = queryAppDTO.getPageNum();
+        int pageSize = queryAppDTO.getPageSize();
+        // 根据查询请求参数获取封装的查询条件
+        QueryWrapper queryWrapper = getQueryWrapper(queryAppDTO);
+        Page<App> pageOfApp = this.page(Page.of(pageNum, pageSize), queryWrapper);
+        // 获取分页中的App全部信息
+        List<App> pageOfAppRecords = pageOfApp.getRecords();
+        // 将List<App>  ->   List<AppVO>
+        List<AppVO> pageOfAppVoRecords = getAppVoListByAppList(pageOfAppRecords);
+        Page<AppVO> appVoPage = new Page<>(pageNum, pageSize, pageOfApp.getTotalRow());
+        appVoPage.setRecords(pageOfAppVoRecords);
+        appVoPage.setTotalPage(pageOfApp.getTotalPage());
+        return appVoPage;
+    }
+
+    @Override
+    public AppVO getAppVoByAdmin(Long id) {
+        ThrowUtils.throwIf(id == null, ErrorCode.PARAMS_ERROR);
+        App app = getById(id);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        return getAppVoByApp(app);
     }
 }

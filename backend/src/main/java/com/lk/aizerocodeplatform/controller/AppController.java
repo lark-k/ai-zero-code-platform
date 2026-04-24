@@ -1,11 +1,10 @@
 package com.lk.aizerocodeplatform.controller;
 
+import com.lk.aizerocodeplatform.annotation.AuthCheck;
 import com.lk.aizerocodeplatform.common.BaseResponse;
 import com.lk.aizerocodeplatform.common.ResultUtils;
-import com.lk.aizerocodeplatform.model.dto.app.AddAppDTO;
-import com.lk.aizerocodeplatform.model.dto.app.DeleteAppDTO;
-import com.lk.aizerocodeplatform.model.dto.app.QueryAppDTO;
-import com.lk.aizerocodeplatform.model.dto.app.UpdateAppDTO;
+import com.lk.aizerocodeplatform.constant.UserConstant;
+import com.lk.aizerocodeplatform.model.dto.app.*;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.mybatisflex.core.paginate.Page;
 import io.swagger.v3.oas.annotations.Operation;
@@ -63,9 +62,38 @@ public class AppController {
     public BaseResponse<Page<AppVO>> getAppVoByPage(@RequestBody QueryAppDTO queryAppDTO, HttpServletRequest request) {
         return ResultUtils.success(appService.getAppVoPage(queryAppDTO, request));
     }
+
     @Operation(summary = "分页查询精选应用信息(包括作者的脱敏信息)")
     @PostMapping("/getAppVoListByPageForGood")
     public BaseResponse<Page<AppVO>> getAppVoPageForGood(@RequestBody QueryAppDTO queryAppDTO) {
         return ResultUtils.success(appService.getAppVoPageForGood(queryAppDTO));
+    }
+
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @Operation(summary = "管理员删除应用")
+    @PostMapping("/admin/delete")
+    public BaseResponse<Boolean> deleteAppByAdmin(@RequestBody DeleteAppDTO deleteAppDTO) {
+        return ResultUtils.success(appService.deleteAppByAdmin(deleteAppDTO));
+    }
+
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @Operation(summary = "管理员更新应用")
+    @PostMapping("/admin/update")
+    public BaseResponse<Boolean> updateAppByAdmin(@RequestBody AppAdminUpdateDTO appAdminUpdateDTO) {
+        return ResultUtils.success(appService.updateAppByAdmin(appAdminUpdateDTO));
+    }
+
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @Operation(summary = "管理员分页查询应用")
+    @PostMapping("/admin/pageQuery")
+    public BaseResponse<Page<AppVO>> queryPageByAdmin(@RequestBody QueryAppDTO queryAppDTO) {
+        return ResultUtils.success(appService.getAppVoPageByAdmin(queryAppDTO));
+    }
+
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @Operation(summary = "管理员查询单个应用信息")
+    @PostMapping("/admin/getApp")
+    public BaseResponse<AppVO> getAppVoByAdmin(Long id) {
+        return ResultUtils.success(appService.getAppVoByAdmin(id));
     }
 }
