@@ -1,7 +1,14 @@
 package com.lk.aizerocodeplatform.controller;
 
+import com.lk.aizerocodeplatform.common.BaseResponse;
+import com.lk.aizerocodeplatform.common.ResultUtils;
+import com.lk.aizerocodeplatform.model.dto.app.AddAppDTO;
+import com.lk.aizerocodeplatform.model.dto.app.UpdateAppDTO;
 import com.mybatisflex.core.paginate.Page;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,6 +29,7 @@ import java.util.List;
  * @author LK
  * @since 2026-04-24
  */
+@Tag(name = "应用模块相关接口")
 @RestController
 @RequestMapping("/app")
 public class AppController {
@@ -29,6 +37,15 @@ public class AppController {
     @Resource
     private AppService appService;
 
-
+    @Operation(description = "增加应用")
+    @PostMapping("/addApp")
+    public BaseResponse<Long> addApp(@RequestBody AddAppDTO addAppDTO, HttpServletRequest request) {
+        return ResultUtils.success(appService.addApp(addAppDTO, request));
+    }
+    @Operation(description = "修改应用")
+    @PostMapping("/updateApp")
+    public BaseResponse<Boolean> updateApp(@RequestBody UpdateAppDTO updateAppDTO, HttpServletRequest request) {
+        return ResultUtils.success(appService.updateApp(updateAppDTO, request));
+    }
 
 }
