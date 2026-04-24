@@ -1,6 +1,7 @@
 package com.lk.aizerocodeplatform.service.Impl;
 
 import cn.hutool.core.collection.CollUtil;
+import com.lk.aizerocodeplatform.constant.AppConstant;
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
@@ -208,5 +209,26 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             appVO.setUserVo(userVO);
             return appVO;
         }).collect(Collectors.toList());
+    }
+
+    @Override
+    public Page<AppVO> getAppVoPageForGood(QueryAppDTO queryAppDTO) {
+        ThrowUtils.throwIf(queryAppDTO == null, ErrorCode.PARAMS_ERROR);
+        int pageNum = queryAppDTO.getPageNum();
+        int pageSize = queryAppDTO.getPageSize();
+        ThrowUtils.throwIf(pageSize > 20, ErrorCode.PARAMS_ERROR, "每页最多查询 20 个应用");
+        // 设置查询条件：精选应用
+        queryAppDTO.setPriority(AppConstant.GOOD_APP_PRIORITY);
+        // 根据查询请求参数获取封装的查询条件
+        QueryWrapper queryWrapper = getQueryWrapper(queryAppDTO);
+        Page<App> pageOfApp = this.page(Page.of(pageNum, pageSize), queryWrapper);
+        // 获取分页中的App全部信息
+        List<App> pageOfAppRecords = pageOfApp.getRecords();
+        // 将List<App>  ->   List<AppVO>
+        List<AppVO> pageOfAppVoRecords = getAppVoListByAppList(pageOfAppRecords);
+        Page<AppVO> appVoPage = new Page<>(pageNum, pageSize, pageOfApp.getTotalRow());
+        appVoPage.setRecords(pageOfAppVoRecords);
+        appVoPage.setTotalPage(pageOfApp.getTotalPage());
+        return appVoPage;
     }
 }

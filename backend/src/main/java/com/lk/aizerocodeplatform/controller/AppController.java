@@ -63,4 +63,9 @@ public class AppController {
     public BaseResponse<Page<AppVO>> getAppVoByPage(@RequestBody QueryAppDTO queryAppDTO, HttpServletRequest request) {
         return ResultUtils.success(appService.getAppVoPage(queryAppDTO, request));
     }
+    @Operation(summary = "分页查询精选应用信息(包括作者的脱敏信息)")
+    @PostMapping("/getAppVoListByPageForGood")
+    public BaseResponse<Page<AppVO>> getAppVoPageForGood(@RequestBody QueryAppDTO queryAppDTO) {
+        return ResultUtils.success(appService.getAppVoPageForGood(queryAppDTO));
+    }
 }

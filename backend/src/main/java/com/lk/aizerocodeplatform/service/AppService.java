@@ -86,4 +86,14 @@ public interface AppService extends IService<App> {
      * 将List App 转换为 List AppVO
      */
     List<AppVO> getAppVoListByAppList(List<App> appList);
+
+    /**
+     * 分页条件查询《精选应用》信息，包括用户脱敏后的信息
+     * 用户不登陆也可以查看
+     *
+     * @param queryAppDTO 查询应用信息的请求
+     * @return 分页后的应用信息
+     */
+    Page<AppVO> getAppVoPageForGood(QueryAppDTO queryAppDTO);
+
 }
