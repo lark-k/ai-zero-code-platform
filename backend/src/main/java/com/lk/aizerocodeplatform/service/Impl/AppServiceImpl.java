@@ -1,17 +1,21 @@
 package com.lk.aizerocodeplatform.service.Impl;
 
+import cn.hutool.core.collection.CollUtil;
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.exception.ThrowUtils;
 import com.lk.aizerocodeplatform.model.dto.app.AddAppDTO;
 import com.lk.aizerocodeplatform.model.dto.app.DeleteAppDTO;
+import com.lk.aizerocodeplatform.model.dto.app.QueryAppDTO;
 import com.lk.aizerocodeplatform.model.dto.app.UpdateAppDTO;
 import com.lk.aizerocodeplatform.model.entity.User;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserVO;
 import com.lk.aizerocodeplatform.service.UserService;
+import com.mybatisflex.core.paginate.Page;
+import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.lk.aizerocodeplatform.model.entity.App;
 import com.lk.aizerocodeplatform.mapper.AppMapper;
@@ -22,6 +26,11 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 
 /**
@@ -132,5 +141,72 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         // 整合作者信息
         appVo.setUserVo(userVo);
         return appVo;
+    }
+
+    @Override
+    public Page<AppVO> getAppVoPage(QueryAppDTO queryAppDTO, HttpServletRequest request) {
+        ThrowUtils.throwIf(queryAppDTO == null, ErrorCode.PARAMS_ERROR);
+        int pageNum = queryAppDTO.getPageNum();
+        int pageSize = queryAppDTO.getPageSize();
+        ThrowUtils.throwIf(pageSize > 20, ErrorCode.PARAMS_ERROR, "每页最多查询 20 个应用");
+        // 拿到当前登录用户的脱敏信息
+        UserLoginVO userLoginVo = userService.getCurrentUserLoginVo(request);
+        ThrowUtils.throwIf(userLoginVo == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 只能查询当前登录用户的应用信息
+        queryAppDTO.setUserId(userLoginVo.getId());
+        // 根据查询请求参数获取封装的查询条件
+        QueryWrapper queryWrapper = getQueryWrapper(queryAppDTO);
+        Page<App> pageOfApp = this.page(Page.of(pageNum, pageSize), queryWrapper);
+        // 获取分页中的App全部信息
+        List<App> pageOfAppRecords = pageOfApp.getRecords();
+        // 将List<App>  ->   List<AppVO>
+        List<AppVO> pageOfAppVoRecords = getAppVoListByAppList(pageOfAppRecords);
+        Page<AppVO> appVoPage = new Page<>(pageNum, pageSize, pageOfApp.getTotalRow());
+        appVoPage.setRecords(pageOfAppVoRecords);
+        appVoPage.setTotalPage(pageOfApp.getTotalPage());
+        return appVoPage;
+    }
+
+    @Override
+    public QueryWrapper getQueryWrapper(QueryAppDTO queryAppDTO) {
+        Long id = queryAppDTO.getId();
+        String appName = queryAppDTO.getAppName();
+        String cover = queryAppDTO.getCover();
+        String initPrompt = queryAppDTO.getInitPrompt();
+        String codeGenType = queryAppDTO.getCodeGenType();
+        String deployKey = queryAppDTO.getDeployKey();
+        Integer priority = queryAppDTO.getPriority();
+        Long userId = queryAppDTO.getUserId();
+        String sortField = queryAppDTO.getSortField();
+        String sortOrder = queryAppDTO.getSortOrder();
+        return QueryWrapper.create()
+                .eq("id", id)
+                .like("appName", appName)
+                .like("cover", cover)
+                .like("initPrompt", initPrompt)
+                .eq("codeGenType", codeGenType)
+                .eq("deployKey", deployKey)
+                .eq("priority", priority)
+                .eq("userId", userId)
+                .orderBy(sortField, "ascend".equals(sortOrder));
+    }
+
+    @Override
+    public List<AppVO> getAppVoListByAppList(List<App> appList) {
+        if (CollUtil.isEmpty(appList)) {
+            return new ArrayList<>();
+        }
+        // 批量获取用户信息，避免 N+1 查询问题
+        Set<Long> userIds = appList.stream()
+                .map(App::getUserId)
+                .collect(Collectors.toSet());
+        Map<Long, UserVO> userVoMap = userService.listByIds(userIds).stream()
+                .collect(Collectors.toMap(User::getId, userService::getUserVoByUser));
+        return appList.stream().map(app -> {
+            AppVO appVO = getAppVoByApp(app);
+            UserVO userVO = userVoMap.get(app.getUserId());
+            appVO.setUserVo(userVO);
+            return appVO;
+        }).collect(Collectors.toList());
     }
 }

@@ -4,6 +4,7 @@ import com.lk.aizerocodeplatform.common.BaseResponse;
 import com.lk.aizerocodeplatform.common.ResultUtils;
 import com.lk.aizerocodeplatform.model.dto.app.AddAppDTO;
 import com.lk.aizerocodeplatform.model.dto.app.DeleteAppDTO;
+import com.lk.aizerocodeplatform.model.dto.app.QueryAppDTO;
 import com.lk.aizerocodeplatform.model.dto.app.UpdateAppDTO;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.mybatisflex.core.paginate.Page;
@@ -11,19 +12,13 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.beans.factory.annotation.Autowired;
-import com.lk.aizerocodeplatform.model.entity.App;
 import com.lk.aizerocodeplatform.service.AppService;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 
 /**
  * 控制层。
@@ -61,5 +56,11 @@ public class AppController {
     @GetMapping("/getAppById")
     public BaseResponse<AppVO> getAppVoById(Long id) {
         return ResultUtils.success(appService.getAppById(id));
+    }
+
+    @Operation(summary = "分页查询应用信息(包括作者的脱敏信息)")
+    @PostMapping("/getAppVoListByPage")
+    public BaseResponse<Page<AppVO>> getAppVoByPage(@RequestBody QueryAppDTO queryAppDTO, HttpServletRequest request) {
+        return ResultUtils.success(appService.getAppVoPage(queryAppDTO, request));
     }
 }
