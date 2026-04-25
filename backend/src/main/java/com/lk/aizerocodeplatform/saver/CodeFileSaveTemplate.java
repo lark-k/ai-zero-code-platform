@@ -21,11 +21,14 @@ public abstract class CodeFileSaveTemplate<T> {
     /**
      * 保存代码文件的核心方法，定义为final不允许子类重写,子类必须遵循该实现流程
      */
-    public final File saveCode(T result) {
+    public final File saveCode(T result, Long appId) {
+        if (appId == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"代码文件保存必须关联一个应用Id");
+        }
         // 1、验证参数
         validateInput(result);
         // 2、得到唯一目录
-        String uniqueDir = getUniqueDir();
+        String uniqueDir = getUniqueDir(appId);
         // 3、保存文件
         saveFiles(uniqueDir, result);
         // 4、返回路径
@@ -44,15 +47,15 @@ public abstract class CodeFileSaveTemplate<T> {
     }
 
     /**
-     * 根据雪花算法+codeGenType获取到唯一的保存路径
-     *
+     * 根据appId+codeGenType获取到唯一的保存路径
+     * @param appId 应用id
      * @return 唯一的保存路径
      */
-    protected String getUniqueDir() {
+    protected String getUniqueDir(Long appId) {
         // 获取代码生成类型
         CodeGenTypeEnum codeGenType = getCodeGenType();
         // 保存路径：/temp/code_output/雪花算法_codeGenType
-        return CodeFileSaveConstant.ROOT_PATH + File.separator + IdUtil.getSnowflakeNextIdStr() + "_" + codeGenType.getValue();
+        return CodeFileSaveConstant.ROOT_PATH + File.separator + appId + "_" + codeGenType.getValue();
     }
 
     /**

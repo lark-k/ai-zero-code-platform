@@ -23,13 +23,15 @@ public class CodeFileSaveExecutor {
      *
      * @param result          需要保存文件的类型
      * @param codeGenTypeEnum 生成的代码类型
-     * @return  文件路径
+     * @param appId 应用id
+     * @return 文件路径
      */
-    public static File executeCodeFileSave(Object result, CodeGenTypeEnum codeGenTypeEnum) {
-        return switch (codeGenTypeEnum){
-            case HTML -> HTML_CODE_FILE_SAVE_TEMPLATE.saveCode((HtmlCodeResult) result);
-            case MULTI_FILE -> MULTI_CODE_FILE_SAVE_TEMPLATE.saveCode((MultiFileCodeResult)  result);
-            default -> throw new BusinessException(ErrorCode.PARAMS_ERROR, "该文件类型不能被保存 + " + codeGenTypeEnum.getValue());
+    public static File executeCodeFileSave(Object result, CodeGenTypeEnum codeGenTypeEnum, Long appId) {
+        return switch (codeGenTypeEnum) {
+            case HTML -> HTML_CODE_FILE_SAVE_TEMPLATE.saveCode((HtmlCodeResult) result, appId);
+            case MULTI_FILE -> MULTI_CODE_FILE_SAVE_TEMPLATE.saveCode((MultiFileCodeResult) result, appId);
+            default ->
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "该文件类型不能被保存 + " + codeGenTypeEnum.getValue());
         };
     }
 }

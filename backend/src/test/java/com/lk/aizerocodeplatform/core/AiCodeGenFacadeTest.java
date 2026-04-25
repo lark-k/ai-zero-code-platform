@@ -24,13 +24,13 @@ class AiCodeGenFacadeTest {
 
     @Test
     void generateCodeAndSave() {
-        File file = aiCodeGenFacade.generateCodeAndSave("任务记录网站", CodeGenTypeEnum.MULTI_FILE);
+        File file = aiCodeGenFacade.generateCodeAndSave("任务记录网站", CodeGenTypeEnum.MULTI_FILE,1L);
         Assertions.assertNotNull(file);
     }
 
     @Test
     void generateCodeAndSaveStream() {
-        List<String> completeCode = aiCodeGenFacade.generateCodeAndSaveStream("任务记录网站", CodeGenTypeEnum.MULTI_FILE)
+        List<String> completeCode = aiCodeGenFacade.generateCodeAndSaveStream("任务记录网站", CodeGenTypeEnum.MULTI_FILE,1L)
                 .collectList()
                 .block();
         Assertions.assertNotNull(completeCode);
