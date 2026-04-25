@@ -1,8 +1,13 @@
 package com.lk.aizerocodeplatform.service.Impl;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.io.IORuntimeException;
+import cn.hutool.core.util.RandomUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.lk.aizerocodeplatform.constant.AppConstant;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
 import com.lk.aizerocodeplatform.core.AiCodeGenFacade;
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
@@ -28,6 +33,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.io.File;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -338,5 +344,49 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                                 .build()
                 )
         );
+    }
+
+    @Override
+    public String appDeploy(Long appId, UserLoginVO userLoginVO) {
+        // 校验参数
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        // 验证登录
+        ThrowUtils.throwIf(userLoginVO == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 查询应用信息
+        App app = getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        // 数据库如果没有deployKey，则生成随机的6位deployKey；如果有，则使用原来的deployKey
+        String deployKey = "";
+        if (StrUtil.isBlank(app.getDeployKey())) {
+            deployKey = RandomUtil.randomString(6);
+        } else {
+            deployKey = app.getDeployKey();
+        }
+        // 拿到代码生成类型
+        String codeGenType = app.getCodeGenType();
+        // 将该应用生成的代码文件夹从code_output复制到code_deploy目录下
+        String sourceDir = CodeFileSaveConstant.ROOT_PATH + File.separator + appId + "_" + codeGenType;
+        File sourcePath = new File(sourceDir);
+        if (!sourcePath.exists()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        String targetDir = CodeFileSaveConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
+        try {
+            FileUtil.copyContent(sourcePath, new File(targetDir), true);
+        } catch (IORuntimeException e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "部署失败");
+        }
+        // 更新数据库
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setDeployKey(deployKey);
+        updateApp.setEditTime(LocalDateTime.now());
+        updateApp.setDeployedTime(LocalDateTime.now());
+        boolean success = updateById(updateApp);
+        if (!success) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "部署失败，请稍后再试");
+        }
+        // 返回可访问的部署后的网站地址url
+        return CodeFileSaveConstant.CODE_DEPLOY_HOST + "/" + deployKey;
     }
 }

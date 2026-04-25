@@ -137,4 +137,13 @@ public interface AppService extends IService<App> {
      * @return 流式响应
      */
     Flux<ServerSentEvent<String>> chatToGenCode(String message, Long appId, UserLoginVO userLoginVO);
+
+    /**
+     * 应用部署
+     *
+     * @param appId       应用id
+     * @param userLoginVO 用户登录信息
+     * @return 部署后网站可访问的链接地址
+     */
+    String appDeploy(Long appId, UserLoginVO userLoginVO);
 }

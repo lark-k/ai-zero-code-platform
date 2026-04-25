@@ -5,10 +5,8 @@ import com.lk.aizerocodeplatform.common.BaseResponse;
 import com.lk.aizerocodeplatform.common.ResultUtils;
 import com.lk.aizerocodeplatform.constant.UserConstant;
 import com.lk.aizerocodeplatform.model.dto.app.*;
-import com.lk.aizerocodeplatform.model.entity.User;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
-import com.lk.aizerocodeplatform.model.vo.user.UserVO;
 import com.lk.aizerocodeplatform.service.UserService;
 import com.mybatisflex.core.paginate.Page;
 import io.swagger.v3.oas.annotations.Operation;
@@ -109,5 +107,11 @@ public class AppController {
                                                        HttpServletRequest request) {
         UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
         return appService.chatToGenCode(message, appId, currentUserLoginVo);
+    }
+
+    @Operation(summary = "用户部署应用")
+    @PostMapping(value = "/deploy")
+    public BaseResponse<String> appDeploy(@RequestBody AppDeployDTO appDeployDTO, HttpServletRequest request) {
+        return ResultUtils.success(appService.appDeploy(appDeployDTO.getAppId(), userService.getCurrentUserLoginVo(request)));
     }
 }

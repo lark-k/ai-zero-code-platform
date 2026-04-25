@@ -12,4 +12,13 @@ public interface CodeFileSaveConstant {
      * 保存代码文件的根路径
      */
     String ROOT_PATH = System.getProperty("user.dir") + "/temp/code_output";
+    /**
+     * 应用部署目录
+     */
+    String CODE_DEPLOY_ROOT_DIR = System.getProperty("user.dir") + "/temp/code_deploy";
+
+    /**
+     * 应用部署域名(nginx代理)
+     */
+    String CODE_DEPLOY_HOST = "http://localhost";
 }
