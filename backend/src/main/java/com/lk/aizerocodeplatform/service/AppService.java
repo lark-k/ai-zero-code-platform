@@ -2,11 +2,14 @@ package com.lk.aizerocodeplatform.service;
 
 import com.lk.aizerocodeplatform.model.dto.app.*;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
+import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
 import com.lk.aizerocodeplatform.model.entity.App;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.codec.ServerSentEvent;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 
@@ -124,4 +127,14 @@ public interface AppService extends IService<App> {
      * @return 应用信息（包括用户脱敏信息）
      */
     AppVO getAppVoByAdmin(Long id);
+
+    /**
+     * 对话生成代码
+     *
+     * @param message     用户消息
+     * @param appId       应用id
+     * @param userLoginVO 登录用户的脱敏信息
+     * @return 流式响应
+     */
+    Flux<ServerSentEvent<String>> chatToGenCode(String message, Long appId, UserLoginVO userLoginVO);
 }

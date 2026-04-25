@@ -5,18 +5,21 @@ import com.lk.aizerocodeplatform.common.BaseResponse;
 import com.lk.aizerocodeplatform.common.ResultUtils;
 import com.lk.aizerocodeplatform.constant.UserConstant;
 import com.lk.aizerocodeplatform.model.dto.app.*;
+import com.lk.aizerocodeplatform.model.entity.User;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
+import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import com.lk.aizerocodeplatform.model.vo.user.UserVO;
+import com.lk.aizerocodeplatform.service.UserService;
 import com.mybatisflex.core.paginate.Page;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.web.bind.annotation.*;
 import com.lk.aizerocodeplatform.service.AppService;
-import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Flux;
 
 
 /**
@@ -32,6 +35,8 @@ public class AppController {
 
     @Resource
     private AppService appService;
+    @Resource
+    private UserService userService;
 
     @Operation(summary = "增加应用")
     @PostMapping("/addApp")
@@ -95,5 +100,14 @@ public class AppController {
     @PostMapping("/admin/getApp")
     public BaseResponse<AppVO> getAppVoByAdmin(Long id) {
         return ResultUtils.success(appService.getAppVoByAdmin(id));
+    }
+
+    @Operation(summary = "用户对话生成应用")
+    @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam String message,
+                                                       @RequestParam Long appId,
+                                                       HttpServletRequest request) {
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        return appService.chatToGenCode(message, appId, currentUserLoginVo);
     }
 }

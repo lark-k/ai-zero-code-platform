@@ -1,7 +1,9 @@
 package com.lk.aizerocodeplatform.service.Impl;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.json.JSONUtil;
 import com.lk.aizerocodeplatform.constant.AppConstant;
+import com.lk.aizerocodeplatform.core.AiCodeGenFacade;
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
@@ -21,7 +23,10 @@ import com.lk.aizerocodeplatform.service.AppService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.BeanUtils;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -41,6 +46,8 @@ import java.util.stream.Collectors;
 public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppService {
     @Resource
     private UserService userService;
+    @Resource
+    private AiCodeGenFacade aiCodeGenFacade;
 
     @Override
     public Long addApp(AddAppDTO addAppDTO, HttpServletRequest request) {
@@ -293,5 +300,43 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         App app = getById(id);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         return getAppVoByApp(app);
+    }
+
+    @Override
+    public Flux<ServerSentEvent<String>> chatToGenCode(String message, Long appId, UserLoginVO userLoginVO) {
+        // 判断参数是否合法
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(userLoginVO == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 判断应用是否存在
+        App app = getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        // 每个用户只能与自己的应用对话
+        if (!userLoginVO.getId().equals(app.getUserId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        // 获取代码生成类型
+        String codeGenType = app.getCodeGenType();
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getByValue(codeGenType);
+        if (codeGenTypeEnum == null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "代码生成类型错误");
+        }
+        // 调用门面类，获取与AI对话的回复内容
+        Flux<String> codeContentStream = aiCodeGenFacade.generateCodeAndSaveStream(message, codeGenTypeEnum, appId);
+        // 为了防止AI回复内容中的空格返回前端后被去掉，此处对回复内容再封装一层
+        return codeContentStream.map((chunk) -> {
+            // 将AI回复的流式内容先放到map中
+            Map<String, String> chunkMap = Map.of("v", chunk);
+            String jsonStr = JSONUtil.toJsonStr(chunkMap);
+            return ServerSentEvent.<String>builder()
+                    .data(jsonStr)
+                    .build();
+        }).concatWith(Mono.just(
+                        // AI回复内容完毕后给前端回复一个结束事件
+                        ServerSentEvent.<String>builder()
+                                .data("")
+                                .event("done")
+                                .build()
+                )
+        );
     }
 }
