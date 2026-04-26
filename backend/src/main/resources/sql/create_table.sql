@@ -50,3 +50,27 @@ create table app
     INDEX idx_userId (userId)            -- 提升基于用户 ID 的查询性能
 ) comment '应用' collate = utf8mb4_unicode_ci;
 
+create table app_featured_apply
+(
+    id            bigint auto_increment comment '申请id'
+        primary key,
+    appId         bigint                              not null comment '应用id',
+    userId        bigint                              not null comment '申请人id',
+    applyReason   varchar(1024)                       null comment '申请理由',
+    status        varchar(32) default 'pending'       not null comment '申请状态：pending-待审核，approved-已通过，rejected-已拒绝，canceled-已撤销',
+    reviewRemark  varchar(1024)                       null comment '审核备注/拒绝原因',
+    reviewUserId  bigint                              null comment '审核管理员id',
+    reviewTime    datetime                            null comment '审核时间',
+    createTime    datetime  default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime    datetime  default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete      tinyint   default 0                 not null comment '是否删除：0-未删，1-已删',
+
+    index idx_appId (appId),
+    index idx_userId (userId),
+    index idx_status (status),
+    index idx_reviewUserId (reviewUserId),
+    index idx_createTime (createTime)
+)
+    comment '应用精选申请表';
+
+
