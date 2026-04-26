@@ -113,10 +113,11 @@ const handleLogout = async () => {
   height: auto;
   padding: 0;
   line-height: normal;
-  background: rgba(255, 255, 255, 0.88);
-  border-bottom: 1px solid rgba(132, 161, 198, 0.12);
+  background:
+    linear-gradient(90deg, rgba(244, 255, 233, 0.5), rgba(151, 244, 231, 0.36), rgba(100, 173, 255, 0.32));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.34);
   backdrop-filter: blur(18px);
-  box-shadow: 0 8px 32px rgba(42, 70, 110, 0.08);
+  box-shadow: 0 8px 32px rgba(42, 70, 110, 0.06);
 }
 
 .global-header__inner {
@@ -211,8 +212,8 @@ const handleLogout = async () => {
   align-items: center;
   gap: 12px;
   padding: 8px 14px 8px 8px;
-  background: rgba(243, 248, 255, 0.92);
-  border: 1px solid rgba(115, 149, 192, 0.12);
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid rgba(255, 255, 255, 0.42);
   border-radius: 999px;
 }
 

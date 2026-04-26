@@ -7,6 +7,10 @@ const HomePage = () => import('@/pages/HomePage.vue')
 const UserLoginPage = () => import('@/pages/user/UserLoginPage.vue')
 const UserRegisterPage = () => import('@/pages/user/UserRegisterPage.vue')
 const UserManagePage = () => import('@/pages/admin/UserManagePage.vue')
+const AppManagePage = () => import('@/pages/admin/AppManagePage.vue')
+const AppChatPage = () => import('@/pages/app/AppChatPage.vue')
+const AppDetailPage = () => import('@/pages/app/AppDetailPage.vue')
+const AppEditPage = () => import('@/pages/app/AppEditPage.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -27,9 +31,38 @@ const router = createRouter({
       component: UserRegisterPage,
     },
     {
+      path: '/app/chat/:id',
+      name: '应用生成对话',
+      component: AppChatPage,
+      meta: {
+        loginOnly: true,
+      },
+    },
+    {
+      path: '/app/detail/:id',
+      name: '应用详情',
+      component: AppDetailPage,
+    },
+    {
+      path: '/app/edit/:id',
+      name: '应用信息修改',
+      component: AppEditPage,
+      meta: {
+        loginOnly: true,
+      },
+    },
+    {
       path: '/admin/userManage',
       name: '用户管理',
       component: UserManagePage,
+      meta: {
+        adminOnly: true,
+      },
+    },
+    {
+      path: '/admin/appManage',
+      name: '应用管理',
+      component: AppManagePage,
       meta: {
         adminOnly: true,
       },
@@ -40,8 +73,8 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const loginUserStore = useLoginUserStore(pinia)
 
-  if (to.meta.adminOnly) {
-    if (!loginUserStore.hasFetched || !loginUserStore.isLoggedIn || !loginUserStore.isAdmin) {
+  if (to.meta.adminOnly || to.meta.loginOnly) {
+    if (!loginUserStore.hasFetched || !loginUserStore.isLoggedIn) {
       await loginUserStore.fetchLoginUser()
     }
 
@@ -54,11 +87,12 @@ router.beforeEach(async (to) => {
         },
       }
     }
-    if (!loginUserStore.isAdmin) {
-      message.warning('仅管理员可以访问用户管理页面')
-      return {
-        path: '/',
-      }
+  }
+
+  if (to.meta.adminOnly && !loginUserStore.isAdmin) {
+    message.warning('仅管理员可以访问该页面')
+    return {
+      path: '/',
     }
   }
 

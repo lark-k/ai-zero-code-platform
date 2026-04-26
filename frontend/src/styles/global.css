@@ -2,7 +2,7 @@
   color-scheme: light;
   font-family: 'Alibaba PuHuiTi 3.0', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: #16324f;
-  background: #f4f8ff;
+  background: #c9fff1;
   --page-max-width: 1420px;
   --brand-primary: #2d7ff9;
   --brand-primary-deep: #4e66ff;
@@ -42,9 +42,12 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background:
-    radial-gradient(circle at 20% 0%, rgba(120, 169, 255, 0.2), transparent 28%),
-    radial-gradient(circle at 80% 12%, rgba(126, 221, 211, 0.16), transparent 24%),
-    linear-gradient(180deg, #fbfdff 0%, #f4f8ff 48%, #edf4ff 100%);
+    radial-gradient(ellipse 90% 62% at 82% 14%, rgba(187, 255, 246, 0.9) 0%, rgba(86, 232, 222, 0.62) 38%, rgba(45, 170, 235, 0) 72%),
+    radial-gradient(ellipse 76% 58% at 12% 36%, rgba(239, 255, 223, 0.76) 0%, rgba(133, 255, 232, 0.52) 44%, rgba(86, 210, 255, 0) 76%),
+    radial-gradient(ellipse 118% 92% at 62% 104%, rgba(63, 123, 255, 0.84) 0%, rgba(71, 191, 242, 0.58) 44%, rgba(111, 239, 223, 0) 76%),
+    linear-gradient(145deg, #f4ffe9 0%, #c9fff1 22%, #73eee7 52%, #67d2f0 72%, #5b92ff 100%);
+  background-attachment: fixed;
+  background-size: cover;
 }
 
 body::before {
@@ -53,10 +56,8 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(rgba(111, 149, 197, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(111, 149, 197, 0.08) 1px, transparent 1px);
-  background-size: 36px 36px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 92%);
+    linear-gradient(115deg, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.06) 34%, rgba(255, 255, 255, 0) 66%),
+    radial-gradient(ellipse 82% 52% at 50% 0%, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0.08) 54%, rgba(255, 255, 255, 0) 100%);
   z-index: -2;
 }
 
@@ -66,9 +67,11 @@ body::after {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 50% 18%, rgba(126, 139, 255, 0.18), transparent 22%),
-    radial-gradient(circle at 48% 30%, rgba(65, 137, 255, 0.12), transparent 30%);
-  filter: blur(24px);
+    repeating-radial-gradient(circle at 18% 72%, rgba(255, 255, 255, 0.16) 0 1px, transparent 1px 5px),
+    repeating-radial-gradient(circle at 82% 48%, rgba(21, 91, 160, 0.08) 0 1px, transparent 1px 4px),
+    linear-gradient(138deg, rgba(255, 255, 255, 0.46) 0%, rgba(255, 255, 255, 0) 42%, rgba(34, 121, 255, 0.12) 100%);
+  mix-blend-mode: soft-light;
+  opacity: 0.9;
   z-index: -3;
 }
 

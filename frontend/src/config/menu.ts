@@ -12,6 +12,12 @@ export const headerMenuItems: HeaderMenuItem[] = [
     path: '/',
   },
   {
+    key: 'app-manage',
+    label: '应用管理',
+    path: '/admin/appManage',
+    adminOnly: true,
+  },
+  {
     key: 'user-manage',
     label: '用户管理',
     path: '/admin/userManage',

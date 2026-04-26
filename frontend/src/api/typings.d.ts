@@ -1,10 +1,46 @@
 declare namespace API {
+  type AddAppDTO = {
+    initPrompt?: string
+  }
+
   type AddUserDTO = {
     userName?: string
     userAccount?: string
     userAvatar?: string
     userProfile?: string
     userRole?: string
+  }
+
+  type AppAdminUpdateDTO = {
+    id?: number
+    appName?: string
+    cover?: string
+    priority?: number
+  }
+
+  type AppDeployDTO = {
+    appId?: number
+  }
+
+  type AppVO = {
+    id?: number
+    appName?: string
+    cover?: string
+    initPrompt?: string
+    codeGenType?: string
+    deployKey?: string
+    deployedTime?: string
+    priority?: number
+    userId?: number
+    createTime?: string
+    updateTime?: string
+    userVo?: UserVO
+  }
+
+  type BaseResponseAppVO = {
+    code?: number
+    data?: AppVO
+    message?: string
   }
 
   type BaseResponseBoolean = {
@@ -25,9 +61,21 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponsePageAppVO = {
+    code?: number
+    data?: PageAppVO
+    message?: string
+  }
+
   type BaseResponsePageUserVO = {
     code?: number
     data?: PageUserVO
+    message?: string
+  }
+
+  type BaseResponseString = {
+    code?: number
+    data?: string
     message?: string
   }
 
@@ -49,8 +97,25 @@ declare namespace API {
     message?: string
   }
 
+  type chatToGenCodeParams = {
+    message: string
+    appId: number
+  }
+
+  type DeleteAppDTO = {
+    id?: number
+  }
+
   type DeleteUserDTO = {
     id?: number
+  }
+
+  type getAppVoByAdminParams = {
+    id: number
+  }
+
+  type getAppVoByIdParams = {
+    id: number
   }
 
   type getUserByIdParams = {
@@ -61,6 +126,15 @@ declare namespace API {
     id: number
   }
 
+  type PageAppVO = {
+    records?: AppVO[]
+    pageNumber?: number
+    pageSize?: number
+    totalPage?: number
+    totalRow?: number
+    optimizeCountQuery?: boolean
+  }
+
   type PageUserVO = {
     records?: UserVO[]
     pageNumber?: number
@@ -68,6 +142,21 @@ declare namespace API {
     totalPage?: number
     totalRow?: number
     optimizeCountQuery?: boolean
+  }
+
+  type QueryAppDTO = {
+    pageNum?: number
+    pageSize?: number
+    sortField?: string
+    sortOrder?: string
+    id?: number
+    appName?: string
+    cover?: string
+    initPrompt?: string
+    codeGenType?: string
+    deployKey?: string
+    priority?: number
+    userId?: number
   }
 
   type QueryUserDTO = {
@@ -80,6 +169,17 @@ declare namespace API {
     userAccount?: string
     userProfile?: string
     userRole?: string
+  }
+
+  type ServerSentEventString = true
+
+  type serveStaticResourceParams = {
+    appId: number
+  }
+
+  type UpdateAppDTO = {
+    id?: number
+    appName?: string
   }
 
   type UpdateUserDTO = {
