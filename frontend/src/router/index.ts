@@ -14,6 +14,30 @@ const AppEditPage = () => import('@/pages/app/AppEditPage.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
+  scrollBehavior(to, from, savedPosition) {
+    if (to.hash) {
+      return {
+        el: to.hash,
+        behavior: 'smooth',
+      }
+    }
+
+    if (to.path === '/') {
+      return {
+        left: 0,
+        top: 0,
+      }
+    }
+
+    if (savedPosition) {
+      return savedPosition
+    }
+
+    return {
+      left: 0,
+      top: 0,
+    }
+  },
   routes: [
     {
       path: '/',

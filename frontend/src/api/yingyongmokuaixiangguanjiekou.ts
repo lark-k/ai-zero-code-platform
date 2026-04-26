@@ -68,6 +68,21 @@ export async function updateAppByAdmin(
   })
 }
 
+/** 取消置顶精选应用 GET /app/cancelTop */
+export async function cancelTop(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.cancelTopParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseBoolean>('/app/cancelTop', {
+    method: 'GET',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}
+
 /** 用户对话生成应用 GET /app/chat */
 export async function chatToGenCode(
   // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
@@ -142,6 +157,21 @@ export async function getAppVoPageForGood(body: API.QueryAppDTO, options?: { [ke
       'Content-Type': 'application/json',
     },
     data: body,
+    ...(options || {}),
+  })
+}
+
+/** 置顶精选应用 GET /app/toTop */
+export async function stickToTop(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.stickToTopParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseBoolean>('/app/toTop', {
+    method: 'GET',
+    params: {
+      ...params,
+    },
     ...(options || {}),
   })
 }

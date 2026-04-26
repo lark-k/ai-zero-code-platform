@@ -83,6 +83,14 @@ public interface AppService extends IService<App> {
     QueryWrapper getQueryWrapper(QueryAppDTO queryAppDTO);
 
     /**
+     * 封装精选应用的查询条件
+     *
+     * @param queryAppDTO 查询请求参数
+     * @return 查询条件
+     */
+    QueryWrapper getQueryWrapperForGood(QueryAppDTO queryAppDTO);
+
+    /**
      * 将List App 转换为 List AppVO
      */
     List<AppVO> getAppVoListByAppList(List<App> appList);
@@ -146,4 +154,20 @@ public interface AppService extends IService<App> {
      * @return 部署后网站可访问的链接地址
      */
     String appDeploy(Long appId, UserLoginVO userLoginVO);
+
+    /**
+     * 精选应用置顶
+     *
+     * @param appId 应用id
+     * @return 是否成功
+     */
+    Boolean stickToTop(Long appId);
+
+    /**
+     * 取消精选应用置顶
+     *
+     * @param appId 应用id
+     * @return 是否成功
+     */
+    Boolean cancelTop(Long appId);
 }

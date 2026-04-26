@@ -99,9 +99,7 @@ onMounted(() => {
         <div>
           <span class="edit-panel__eyebrow">{{ isAdminMode ? 'Admin Edit' : 'Owner Edit' }}</span>
           <h1>应用信息修改</h1>
-          <p>
-            普通用户只支持修改自己的应用名称；管理员可更新应用名称、封面和精选优先级。
-          </p>
+          <p>普通用户只支持修改自己的应用名称；管理员可更新应用名称、封面和优先级。</p>
         </div>
       </div>
 
@@ -129,11 +127,11 @@ onMounted(() => {
               <a-input-number
                 v-model:value="formState.priority"
                 :min="0"
-                :max="99"
+                :max="999"
                 size="large"
                 style="width: 180px"
               />
-              <span class="edit-form__hint">设置为 99 即精选应用</span>
+              <span class="edit-form__hint">设置为 99 表示精选，设置为 999 表示置顶精选</span>
             </a-form-item>
           </template>
 

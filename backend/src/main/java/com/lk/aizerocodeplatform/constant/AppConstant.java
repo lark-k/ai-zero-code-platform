@@ -13,6 +13,11 @@ public interface AppConstant {
     Integer GOOD_APP_PRIORITY = 99;
 
     /**
+     * 置顶精选的优先级
+     */
+    Integer TOP_GOOD_APP_PRIORITY = 999;
+
+    /**
      * 默认应用优先级
      */
     Integer DEFAULT_APP_PRIORITY = 0;

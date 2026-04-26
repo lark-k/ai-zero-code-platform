@@ -2,11 +2,16 @@
 import { onMounted, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import {
+  cancelTop,
   deleteAppByAdmin,
   queryPageByAdmin,
+  stickToTop,
   updateAppByAdmin,
 } from '@/api/yingyongmokuaixiangguanjiekou.ts'
 import { useRouter } from 'vue-router'
+
+const APP_GOOD_PRIORITY = 99
+const APP_TOP_PRIORITY = 999
 
 const router = useRouter()
 const loading = ref(false)
@@ -30,6 +35,24 @@ const pagination = reactive({
   total: 0,
 })
 
+const getSortTimestamp = (app: API.AppVO) => {
+  const time = app.updateTime || app.createTime
+  if (!time) {
+    return 0
+  }
+  const timestamp = new Date(time).getTime()
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+const sortAppsByPriority = (apps: API.AppVO[] = []) =>
+  [...apps].sort((prev, next) => {
+    const priorityDiff = (next.priority ?? 0) - (prev.priority ?? 0)
+    if (priorityDiff !== 0) {
+      return priorityDiff
+    }
+    return getSortTimestamp(next) - getSortTimestamp(prev)
+  })
+
 const loadApps = async () => {
   loading.value = true
   try {
@@ -43,14 +66,14 @@ const loadApps = async () => {
       deployKey: queryForm.deployKey || undefined,
       priority: queryForm.priority,
       userId: queryForm.userId || undefined,
-      sortField: 'createTime',
+      sortField: 'priority',
       sortOrder: 'descend',
     })
     if (res.data.code !== 0) {
       message.error(res.data.message || '获取应用列表失败')
       return
     }
-    appList.value = res.data.data?.records ?? []
+    appList.value = sortAppsByPriority(res.data.data?.records ?? [])
     pagination.total = res.data.data?.totalRow ?? 0
   } catch (error) {
     message.error(error instanceof Error ? error.message : '获取应用列表失败，请稍后重试')
@@ -111,16 +134,54 @@ const markAsGood = async (record: API.AppVO) => {
       id: record.id as unknown as number,
       appName: record.appName,
       cover: record.cover,
-      priority: 99,
+      priority: APP_GOOD_PRIORITY,
     })
     if (res.data.code !== 0) {
-      message.error(res.data.message || '设置精选失败')
+      message.error(res.data.message || '设为精选失败')
       return
     }
-    message.success('已设置为精选应用')
+    message.success('已设为精选应用')
     await loadApps()
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '设置精选失败，请稍后重试')
+    message.error(error instanceof Error ? error.message : '设为精选失败，请稍后重试')
+  }
+}
+
+const topGoodApp = async (record: API.AppVO) => {
+  if (!record.id) {
+    return
+  }
+  try {
+    const res = await stickToTop({
+      appId: record.id as unknown as number,
+    })
+    if (res.data.code !== 0) {
+      message.error(res.data.message || '置顶精选应用失败')
+      return
+    }
+    message.success('已置顶精选应用')
+    await loadApps()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '置顶精选应用失败，请稍后重试')
+  }
+}
+
+const cancelTopGoodApp = async (record: API.AppVO) => {
+  if (!record.id) {
+    return
+  }
+  try {
+    const res = await cancelTop({
+      appId: record.id as unknown as number,
+    })
+    if (res.data.code !== 0) {
+      message.error(res.data.message || '取消置顶失败')
+      return
+    }
+    message.success('已取消置顶')
+    await loadApps()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '取消置顶失败，请稍后重试')
   }
 }
 
@@ -147,7 +208,7 @@ onMounted(() => {
       <div>
         <span class="manage-page__eyebrow">Admin Only</span>
         <h1>应用管理</h1>
-        <p>管理员可以按除时间外的应用字段筛选，查看详情、编辑、删除或设为精选。</p>
+        <p>管理员可以筛选应用、查看详情、编辑、删除，并完成精选与置顶管理。</p>
       </div>
     </section>
 
@@ -155,7 +216,7 @@ onMounted(() => {
       <div class="manage-panel__header">
         <div>
           <h2>筛选与列表</h2>
-          <p>精选按钮会把应用优先级更新为 99。</p>
+          <p>列表按优先级从高到低展示：置顶精选优先，其次是精选应用，再到普通应用。</p>
         </div>
       </div>
 
@@ -164,7 +225,7 @@ onMounted(() => {
           <a-input-number v-model:value="queryForm.id" placeholder="应用 ID" style="width: 130px" />
         </a-form-item>
         <a-form-item label="名称">
-          <a-input v-model:value="queryForm.appName" placeholder="按名称搜索" allow-clear />
+          <a-input v-model:value="queryForm.appName" placeholder="按应用名称搜索" allow-clear />
         </a-form-item>
         <a-form-item label="提示词">
           <a-input v-model:value="queryForm.initPrompt" placeholder="按提示词搜索" allow-clear />
@@ -195,7 +256,7 @@ onMounted(() => {
         :loading="loading"
         :data-source="appList"
         :pagination="false"
-        :scroll="{ x: 1360 }"
+        :scroll="{ x: 1440 }"
       >
         <a-table-column title="ID" data-index="id" width="80" />
         <a-table-column title="封面" width="110">
@@ -209,9 +270,25 @@ onMounted(() => {
         <a-table-column title="初始提示词" data-index="initPrompt" ellipsis />
         <a-table-column title="代码类型" data-index="codeGenType" width="140" />
         <a-table-column title="部署标识" data-index="deployKey" width="140" />
-        <a-table-column title="优先级" width="110">
+        <a-table-column title="优先级" width="120">
           <template #default="{ record }">
-            <a-tag :color="record.priority === 99 ? 'gold' : 'default'">{{ record.priority ?? 0 }}</a-tag>
+            <a-tag
+              :color="
+                record.priority === APP_TOP_PRIORITY
+                  ? 'volcano'
+                  : record.priority === APP_GOOD_PRIORITY
+                    ? 'gold'
+                    : 'default'
+              "
+            >
+              {{
+                record.priority === APP_TOP_PRIORITY
+                  ? `置顶 ${record.priority}`
+                  : record.priority === APP_GOOD_PRIORITY
+                    ? `精选 ${record.priority}`
+                    : (record.priority ?? 0)
+              }}
+            </a-tag>
           </template>
         </a-table-column>
         <a-table-column title="作者" width="160">
@@ -220,12 +297,18 @@ onMounted(() => {
           </template>
         </a-table-column>
         <a-table-column title="创建时间" data-index="createTime" width="190" />
-        <a-table-column title="操作" width="260" fixed="right">
+        <a-table-column title="操作" width="340" fixed="right">
           <template #default="{ record }">
             <a-space wrap>
               <a-button type="link" @click="viewApp(record.id)">详情</a-button>
               <a-button type="link" @click="editApp(record.id)">编辑</a-button>
-              <a-button type="link" @click="markAsGood(record)">精选</a-button>
+              <a-button v-if="record.priority === APP_TOP_PRIORITY" type="link" @click="cancelTopGoodApp(record)">
+                取消置顶
+              </a-button>
+              <a-button v-else-if="record.priority === APP_GOOD_PRIORITY" type="link" @click="topGoodApp(record)">
+                置顶
+              </a-button>
+              <a-button v-else type="link" @click="markAsGood(record)">设为精选</a-button>
               <a-popconfirm title="确定删除该应用吗？" @confirm="handleDelete(record.id)">
                 <a-button type="link" danger>删除</a-button>
               </a-popconfirm>

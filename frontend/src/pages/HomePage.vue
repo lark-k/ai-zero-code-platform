@@ -19,6 +19,7 @@ const myAppsLoading = ref(false)
 const goodAppsLoading = ref(false)
 const myApps = ref<API.AppVO[]>([])
 const goodApps = ref<API.AppVO[]>([])
+const previewReadyMap = reactive<Record<string, boolean>>({})
 
 const myQuery = reactive({
   appName: '',
@@ -85,6 +86,20 @@ const formatTime = (time?: string) => {
 const getStaticUrl = (id?: number | string) => (id ? `http://localhost:8123/api/static/${id}` : '')
 const getDeployUrl = (deployKey?: string) => (deployKey ? `http://localhost/${deployKey}` : '')
 
+const shouldRenderPreview = (id?: number | string) => {
+  if (!id) {
+    return false
+  }
+  return Boolean(previewReadyMap[String(id)])
+}
+
+const loadPreview = (id?: number | string) => {
+  if (!id) {
+    return
+  }
+  previewReadyMap[String(id)] = true
+}
+
 const getAuthorName = (app: API.AppVO) => {
   if (app.userVo?.userName || app.userVo?.userAccount) {
     return app.userVo.userName || app.userVo.userAccount || 'NoCode 官方'
@@ -105,11 +120,29 @@ const getAuthorAvatar = (app: API.AppVO) => {
   return ''
 }
 
+const getSortTimestamp = (app: API.AppVO) => {
+  const time = app.updateTime || app.createTime
+  if (!time) {
+    return 0
+  }
+  const timestamp = new Date(time).getTime()
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+const sortAppsByPriority = (apps: API.AppVO[] = []) =>
+  [...apps].sort((prev, next) => {
+    const priorityDiff = (next.priority ?? 0) - (prev.priority ?? 0)
+    if (priorityDiff !== 0) {
+      return priorityDiff
+    }
+    return getSortTimestamp(next) - getSortTimestamp(prev)
+  })
+
 const buildQueryPayload = (query: typeof myQuery): API.QueryAppDTO => ({
   pageNum: query.current,
   pageSize: query.pageSize,
   appName: query.appName.trim() || undefined,
-  sortField: 'createTime',
+  sortField: 'priority',
   sortOrder: 'descend',
 })
 
@@ -127,7 +160,7 @@ const loadMyApps = async () => {
       message.error(res.data.message || '获取我的应用失败')
       return
     }
-    myApps.value = res.data.data?.records ?? []
+    myApps.value = sortAppsByPriority(res.data.data?.records ?? [])
     myQuery.total = res.data.data?.totalRow ?? 0
   } catch (error) {
     message.error(error instanceof Error ? error.message : '获取我的应用失败，请稍后重试')
@@ -144,7 +177,7 @@ const loadGoodApps = async () => {
       message.error(res.data.message || '获取精选应用失败')
       return
     }
-    goodApps.value = res.data.data?.records ?? []
+    goodApps.value = sortAppsByPriority(res.data.data?.records ?? [])
     goodQuery.total = res.data.data?.totalRow ?? 0
   } catch (error) {
     message.error(error instanceof Error ? error.message : '获取精选应用失败，请稍后重试')
@@ -216,6 +249,17 @@ const viewApp = (id?: number | string) => {
   if (id) {
     router.push(`/app/detail/${id}`)
   }
+}
+
+const handleCoverClick = (app: API.AppVO) => {
+  if (!app.id) {
+    return
+  }
+  if (!app.cover && !shouldRenderPreview(app.id)) {
+    loadPreview(app.id)
+    return
+  }
+  viewApp(app.id)
 }
 
 const continueChat = (id?: number | string) => {
@@ -292,7 +336,6 @@ onMounted(() => {
       <div class="section-heading">
         <div>
           <h2>我的作品</h2>
-          <p>查看、继续生成、修改或删除你创建的应用。</p>
         </div>
         <a-input-search
           v-model:value="myQuery.appName"
@@ -307,9 +350,21 @@ onMounted(() => {
         <div v-if="myApps.length" class="app-grid">
           <article v-for="app in myApps" :key="app.id" class="app-card">
             <div class="app-card__cover-wrap">
-              <button type="button" class="app-card__cover" @click="viewApp(app.id)">
+              <button type="button" class="app-card__cover" @click="handleCoverClick(app)">
                 <img v-if="app.cover" :src="app.cover" :alt="app.appName" />
-                <iframe v-else-if="app.id" :src="getStaticUrl(app.id)" title="应用预览"></iframe>
+                <div v-else-if="app.id" class="app-card__cover-frame">
+                  <iframe
+                    v-if="shouldRenderPreview(app.id)"
+                    :src="getStaticUrl(app.id)"
+                    title="应用预览"
+                    loading="lazy"
+                    tabindex="-1"
+                  ></iframe>
+                  <div v-else class="app-card__cover-placeholder">
+                    <span>{{ (app.appName || '应用').slice(0, 1) }}</span>
+                    <strong class="app-card__preview-tip">点击加载预览</strong>
+                  </div>
+                </div>
                 <div v-else class="app-card__cover-placeholder">
                   <span>{{ (app.appName || '应用').slice(0, 1) }}</span>
                 </div>
@@ -361,7 +416,6 @@ onMounted(() => {
       <div class="section-heading">
         <div>
           <h2>精选案例</h2>
-          <p>优先级为 99 的应用会出现在这里，适合作为灵感和范例。</p>
         </div>
         <a-input-search
           v-model:value="goodQuery.appName"
@@ -376,9 +430,21 @@ onMounted(() => {
         <div v-if="goodApps.length" class="app-grid">
           <article v-for="app in goodApps" :key="app.id" class="app-card app-card--good">
             <div class="app-card__cover-wrap">
-              <button type="button" class="app-card__cover" @click="viewApp(app.id)">
+              <button type="button" class="app-card__cover" @click="handleCoverClick(app)">
                 <img v-if="app.cover" :src="app.cover" :alt="app.appName" />
-                <iframe v-else-if="app.id" :src="getStaticUrl(app.id)" title="精选应用预览"></iframe>
+                <div v-else-if="app.id" class="app-card__cover-frame">
+                  <iframe
+                    v-if="shouldRenderPreview(app.id)"
+                    :src="getStaticUrl(app.id)"
+                    title="精选应用预览"
+                    loading="lazy"
+                    tabindex="-1"
+                  ></iframe>
+                  <div v-else class="app-card__cover-placeholder">
+                    <span>{{ (app.appName || '精选').slice(0, 1) }}</span>
+                    <strong class="app-card__preview-tip">点击加载预览</strong>
+                  </div>
+                </div>
                 <div v-else class="app-card__cover-placeholder">
                   <span>{{ (app.appName || '精选').slice(0, 1) }}</span>
                 </div>
@@ -620,11 +686,16 @@ onMounted(() => {
 }
 
 .app-card__cover img,
+.app-card__cover-frame,
 .app-card__cover iframe {
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: top center;
+}
+
+.app-card__cover-frame {
+  overflow: hidden;
 }
 
 .app-card__cover iframe {
@@ -653,6 +724,14 @@ onMounted(() => {
   font-weight: 800;
   border-radius: 22px;
   background: #0fb7a6;
+}
+
+.app-card__preview-tip {
+  margin-top: 16px;
+  color: #355070;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .app-card__body {

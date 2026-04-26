@@ -223,6 +223,29 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     @Override
+    public QueryWrapper getQueryWrapperForGood(QueryAppDTO queryAppDTO) {
+        Long id = queryAppDTO.getId();
+        String appName = queryAppDTO.getAppName();
+        String cover = queryAppDTO.getCover();
+        String initPrompt = queryAppDTO.getInitPrompt();
+        String codeGenType = queryAppDTO.getCodeGenType();
+        String deployKey = queryAppDTO.getDeployKey();
+        Long userId = queryAppDTO.getUserId();
+        String sortField = queryAppDTO.getSortField();
+        String sortOrder = queryAppDTO.getSortOrder();
+        return QueryWrapper.create()
+                .eq("id", id)
+                .like("appName", appName)
+                .like("cover", cover)
+                .like("initPrompt", initPrompt)
+                .eq("codeGenType", codeGenType)
+                .eq("deployKey", deployKey)
+                .in("priority", AppConstant.GOOD_APP_PRIORITY, AppConstant.TOP_GOOD_APP_PRIORITY)
+                .eq("userId", userId)
+                .orderBy(sortField, "ascend".equals(sortOrder));
+    }
+
+    @Override
     public List<AppVO> getAppVoListByAppList(List<App> appList) {
         if (CollUtil.isEmpty(appList)) {
             return new ArrayList<>();
@@ -250,7 +273,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         // 设置查询条件：精选应用
         queryAppDTO.setPriority(AppConstant.GOOD_APP_PRIORITY);
         // 根据查询请求参数获取封装的查询条件
-        QueryWrapper queryWrapper = getQueryWrapper(queryAppDTO);
+        QueryWrapper queryWrapper = getQueryWrapperForGood(queryAppDTO);
         Page<App> pageOfApp = this.page(Page.of(pageNum, pageSize), queryWrapper);
         // 获取分页中的App全部信息
         List<App> pageOfAppRecords = pageOfApp.getRecords();
@@ -428,5 +451,45 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         // 返回可访问的部署后的网站地址url
         return CodeFileSaveConstant.CODE_DEPLOY_HOST + "/" + deployKey;
+    }
+
+    @Override
+    public Boolean stickToTop(Long appId) {
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        App app = getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        Integer priority = app.getPriority();
+        if (priority != 99) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "只能置顶精选应用");
+        }
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setEditTime(LocalDateTime.now());
+        updateApp.setPriority(999);
+        boolean success = updateById(updateApp);
+        if (!success) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "置顶失败");
+        }
+        return true;
+    }
+
+    @Override
+    public Boolean cancelTop(Long appId) {
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        App app = getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        Integer priority = app.getPriority();
+        if (priority != 999) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "只能取消置顶精选应用");
+        }
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setEditTime(LocalDateTime.now());
+        updateApp.setPriority(99);
+        boolean success = updateById(updateApp);
+        if (!success) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "取消置顶失败");
+        }
+        return true;
     }
 }

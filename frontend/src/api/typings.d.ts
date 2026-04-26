@@ -97,6 +97,10 @@ declare namespace API {
     message?: string
   }
 
+  type cancelTopParams = {
+    appId: number
+  }
+
   type chatToGenCodeParams = {
     message: string
     appId: number
@@ -174,6 +178,10 @@ declare namespace API {
   type ServerSentEventString = true
 
   type serveStaticResourceParams = {
+    appId: number
+  }
+
+  type stickToTopParams = {
     appId: number
   }
 

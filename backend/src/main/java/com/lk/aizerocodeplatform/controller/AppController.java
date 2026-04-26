@@ -114,4 +114,18 @@ public class AppController {
     public BaseResponse<String> appDeploy(@RequestBody AppDeployDTO appDeployDTO, HttpServletRequest request) {
         return ResultUtils.success(appService.appDeploy(appDeployDTO.getAppId(), userService.getCurrentUserLoginVo(request)));
     }
+
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @Operation(summary = "置顶精选应用")
+    @GetMapping(value = "/toTop")
+    public BaseResponse<Boolean> stickToTop(@RequestParam Long appId) {
+        return ResultUtils.success(appService.stickToTop(appId));
+    }
+
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @Operation(summary = "取消置顶精选应用")
+    @GetMapping(value = "/cancelTop")
+    public BaseResponse<Boolean> cancelTop(@RequestParam Long appId) {
+        return ResultUtils.success(appService.cancelTop(appId));
+    }
 }
