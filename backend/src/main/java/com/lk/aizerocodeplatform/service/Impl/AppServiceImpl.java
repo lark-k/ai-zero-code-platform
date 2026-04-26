@@ -119,11 +119,31 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         // 判断要删除的id是否存在
         App app = getById(id);
         ThrowUtils.throwIf(app == null, ErrorCode.OPERATION_ERROR, "应用不存在");
+        String codeGenType = app.getCodeGenType();
+        String deployKey = app.getDeployKey();
         if (!app.getUserId().equals(currentUserLoginVo.getId())) {
             // 只能删除自己的应用
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
+        // 未部署的文件路径
+        String filePath = CodeFileSaveConstant.ROOT_PATH + File.separator + id + "_" + codeGenType;
+        // 已部署的文件路径
+        String deployFilePath = CodeFileSaveConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
         boolean success = removeById(id);
+        try {
+            // 删除代码文件
+            FileUtil.del(filePath);
+        } catch (IORuntimeException e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "代码文件删除失败");
+        }
+        if (deployKey != null) {
+            try {
+                // 删除已经部署的代码文件
+                FileUtil.del(deployFilePath);
+            } catch (IORuntimeException e) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "部署的代码文件删除失败");
+            }
+        }
         if (!success) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用删除失败");
         }
@@ -248,10 +268,30 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         // 准备删除应用的id
         Long id = deleteAppDTO.getId();
         App app = getById(id);
+        String deployKey = app.getDeployKey();
+        String codeGenType = app.getCodeGenType();
+        // 未部署的文件路径
+        String filePath = CodeFileSaveConstant.ROOT_PATH + File.separator + id + "_" + codeGenType;
+        // 已部署的文件路径
+        String deployFilePath = CodeFileSaveConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
         if (app == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         }
         boolean success = removeById(id);
+        try {
+            // 删除代码文件
+            FileUtil.del(filePath);
+        } catch (IORuntimeException e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "代码文件删除失败");
+        }
+        if (deployKey != null) {
+            try {
+                // 删除已经部署的代码文件
+                FileUtil.del(deployFilePath);
+            } catch (IORuntimeException e) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "部署的代码文件删除失败");
+            }
+        }
         if (!success) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用删除失败");
         }
