@@ -72,6 +72,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         app.setUserId(currentUserLoginVo.getId());
         // 应用名称暂时为 initPrompt 前 12 位
         app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
+        app.setCover(" https://picsum.photos/320/180?t=" + RandomUtil.randomNumbers(6));
         boolean success = save(app);
         if (!success) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用增加失败");
