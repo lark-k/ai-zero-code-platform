@@ -14,10 +14,16 @@ import java.io.Serializable;
 public class AdminCheckDTO implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
+
     /**
      * 申请id
      */
     private Long id;
+
+    /**
+     * 应用id
+     */
+    private Long appId;
 
     /**
      * 审查评论

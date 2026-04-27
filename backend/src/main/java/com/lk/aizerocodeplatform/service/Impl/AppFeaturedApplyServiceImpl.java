@@ -21,6 +21,7 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -189,6 +190,7 @@ public class AppFeaturedApplyServiceImpl extends ServiceImpl<AppFeaturedApplyMap
     }
 
     @Override
+    @Transactional
     public String agreeApplyByAdmin(AdminCheckDTO adminCheckDTO, HttpServletRequest request) {
         // 判断管理员是否登录
         UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
@@ -210,10 +212,25 @@ public class AppFeaturedApplyServiceImpl extends ServiceImpl<AppFeaturedApplyMap
         updateFeaturedApply.setReviewUserId(currentUserLoginVo.getId());
         updateFeaturedApply.setStatus(AppFeaturedApplyConstant.AGREE_APPLY);
         updateById(updateFeaturedApply);
+        // 更新应用表中的优先级字段
+        Long appId = adminCheckDTO.getAppId();
+        App app = appService.getById(appId);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setPriority(99);
+        updateApp.setUpdateTime(LocalDateTime.now());
+        boolean success = appService.updateById(updateApp);
+        if (!success) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用表更新失败");
+        }
         return "已同意";
     }
 
     @Override
+    @Transactional
     public String disagreeApplyByAdmin(AdminCheckDTO adminCheckDTO, HttpServletRequest request) {
         // 判断管理员是否登录
         UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
@@ -235,10 +252,25 @@ public class AppFeaturedApplyServiceImpl extends ServiceImpl<AppFeaturedApplyMap
         updateFeaturedApply.setReviewUserId(currentUserLoginVo.getId());
         updateFeaturedApply.setStatus(AppFeaturedApplyConstant.DISAGREE_APPLY);
         updateById(updateFeaturedApply);
+        // 更新应用表中的优先级字段
+        Long appId = adminCheckDTO.getAppId();
+        App app = appService.getById(appId);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setPriority(0);
+        updateApp.setUpdateTime(LocalDateTime.now());
+        boolean success = appService.updateById(updateApp);
+        if (!success) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用表更新失败");
+        }
         return "已拒绝";
     }
 
     @Override
+    @Transactional
     public String cancelApplyByAdmin(AdminCheckDTO adminCheckDTO, HttpServletRequest request) {
         // 判断管理员是否登录
         UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
@@ -260,6 +292,20 @@ public class AppFeaturedApplyServiceImpl extends ServiceImpl<AppFeaturedApplyMap
         updateFeaturedApply.setReviewUserId(currentUserLoginVo.getId());
         updateFeaturedApply.setStatus(AppFeaturedApplyConstant.CANCEL_APPLY);
         updateById(updateFeaturedApply);
+        // 更新应用表中的优先级字段
+        Long appId = adminCheckDTO.getAppId();
+        App app = appService.getById(appId);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setPriority(0);
+        updateApp.setUpdateTime(LocalDateTime.now());
+        boolean success = appService.updateById(updateApp);
+        if (!success) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用表更新失败");
+        }
         return "已撤销";
     }
 
