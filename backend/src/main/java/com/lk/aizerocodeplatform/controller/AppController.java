@@ -128,4 +128,11 @@ public class AppController {
     public BaseResponse<Boolean> cancelTop(@RequestParam Long appId) {
         return ResultUtils.success(appService.cancelTop(appId));
     }
+
+    @Operation(summary = "取消应用部署")
+    @GetMapping(value = "/cancelDeploy")
+    public BaseResponse<String> cancelDeploy(@RequestParam Long appId, HttpServletRequest request) {
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        return ResultUtils.success(appService.cancelDeploy(appId, currentUserLoginVo));
+    }
 }

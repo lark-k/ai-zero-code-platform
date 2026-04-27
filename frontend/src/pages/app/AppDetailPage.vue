@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { appDeploy, getAppVoById } from '@/api/yingyongmokuaixiangguanjiekou.ts'
+import { appDeploy, cancelDeploy, getAppVoById } from '@/api/yingyongmokuaixiangguanjiekou.ts'
 import { formatDateTime } from '@/constants/featuredApply'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 
@@ -15,6 +15,7 @@ const loginUserStore = useLoginUserStore()
 const app = ref<API.AppVO>()
 const loading = ref(false)
 const deploying = ref(false)
+const canceling = ref(false)
 
 const appId = computed(() => String(route.params.id || ''))
 const previewUrl = computed(() => `${API_BASE_URL}/static/${appId.value}?t=${Date.now()}`)
@@ -23,6 +24,7 @@ const isOwner = computed(
 )
 const canManage = computed(() => loginUserStore.isAdmin || isOwner.value)
 const deployedUrl = computed(() => (app.value?.deployKey ? `http://localhost/${app.value.deployKey}` : ''))
+const isDeployed = computed(() => Boolean(app.value?.deployKey))
 
 const loadApp = async () => {
   if (!appId.value) {
@@ -74,6 +76,33 @@ const deployApp = async () => {
   }
 }
 
+const cancelDeployApp = async () => {
+  if (!canManage.value) {
+    message.warning('只有应用作者或管理员可以取消部署该应用')
+    return
+  }
+
+  if (!appId.value) {
+    return
+  }
+
+  canceling.value = true
+  try {
+    const res = await cancelDeploy({ appId: appId.value as unknown as number })
+    if (res.data.code !== 0) {
+      message.error(res.data.message || '取消部署失败')
+      return
+    }
+
+    message.success(res.data.data || '取消部署成功')
+    await loadApp()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '取消部署失败，请稍后重试')
+  } finally {
+    canceling.value = false
+  }
+}
+
 const goToFeaturedApply = () => {
   void router.push({
     path: '/app/featured/apply',
@@ -113,7 +142,24 @@ onMounted(() => {
           <a-button v-if="isOwner" @click="goToFeaturedApply">申请精选</a-button>
           <a-button v-if="loginUserStore.isAdmin" @click="goToFeaturedReview">审核申请</a-button>
           <a-button v-if="canManage" @click="router.push(`/app/edit/${appId}`)">编辑信息</a-button>
-          <a-button v-if="canManage" type="primary" :loading="deploying" @click="deployApp">部署</a-button>
+          <a-popconfirm
+            v-if="canManage && isDeployed"
+            title="确定取消部署该应用吗？"
+            ok-text="确定"
+            cancel-text="取消"
+            @confirm="cancelDeployApp"
+          >
+            <a-button danger :loading="canceling" :disabled="deploying">取消部署</a-button>
+          </a-popconfirm>
+          <a-button
+            v-else-if="canManage"
+            type="primary"
+            :loading="deploying"
+            :disabled="canceling"
+            @click="deployApp"
+          >
+            部署
+          </a-button>
         </a-space>
       </section>
 

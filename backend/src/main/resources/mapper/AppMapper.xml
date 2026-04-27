@@ -3,5 +3,11 @@
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.lk.aizerocodeplatform.mapper.AppMapper">
-
+    <update id="clearDeployInfo">
+        update app
+        set deployKey = null,
+            deployedTime = null,
+            editTime = now()
+        where id = #{appId}
+    </update>
 </mapper>

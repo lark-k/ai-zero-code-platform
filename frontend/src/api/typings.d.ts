@@ -147,6 +147,10 @@ declare namespace API {
     message?: string
   }
 
+  type cancelDeployParams = {
+    appId: number
+  }
+
   type cancelTopParams = {
     appId: number
   }

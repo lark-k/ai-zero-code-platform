@@ -170,4 +170,13 @@ public interface AppService extends IService<App> {
      * @return 是否成功
      */
     Boolean cancelTop(Long appId);
+
+    /**
+     * 取消部署
+     *
+     * @param appId       应用id
+     * @param userLoginVO 当前登录的用户信息
+     * @return 是否取消部署成功
+     */
+    String cancelDeploy(Long appId, UserLoginVO userLoginVO);
 }

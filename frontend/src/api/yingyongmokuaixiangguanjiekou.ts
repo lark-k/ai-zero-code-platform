@@ -68,6 +68,21 @@ export async function updateAppByAdmin(
   })
 }
 
+/** 取消应用部署 GET /app/cancelDeploy */
+export async function cancelDeploy(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.cancelDeployParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseString>('/app/cancelDeploy', {
+    method: 'GET',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}
+
 /** 取消置顶精选应用 GET /app/cancelTop */
 export async function cancelTop(
   // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)

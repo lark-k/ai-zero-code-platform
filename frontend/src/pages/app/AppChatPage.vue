@@ -4,9 +4,11 @@ import { message, Modal } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   appDeploy,
+  cancelDeploy,
   getAppVoById,
 } from '@/api/yingyongmokuaixiangguanjiekou.ts'
 import logoUrl from '@/assets/logo.png'
+import { useLoginUserStore } from '@/stores/loginUser.ts'
 
 interface ChatMessage {
   id: string
@@ -25,10 +27,12 @@ const TYPEWRITER_CHARS_PER_TICK = 2
 
 const route = useRoute()
 const router = useRouter()
+const loginUserStore = useLoginUserStore()
 const app = ref<API.AppVO>()
 const loadingApp = ref(false)
 const sending = ref(false)
 const deploying = ref(false)
+const canceling = ref(false)
 const inputMessage = ref('')
 const messages = ref<ChatMessage[]>([])
 const previewReady = ref(false)
@@ -38,6 +42,12 @@ let eventSource: EventSource | null = null
 
 const appId = computed(() => String(route.params.id || ''))
 const appName = computed(() => app.value?.appName || '未命名应用')
+const isOwner = computed(
+  () => Boolean(loginUserStore.loginUser.id) && app.value?.userId === loginUserStore.loginUser.id,
+)
+const canManage = computed(() => loginUserStore.isAdmin || isOwner.value)
+const isDeployed = computed(() => Boolean(app.value?.deployKey))
+const deployedUrl = computed(() => (app.value?.deployKey ? `http://localhost/${app.value.deployKey}` : ''))
 const previewUrl = computed(() => `${API_BASE_URL}/static/${appId.value}?t=${previewVersion.value}`)
 
 const scrollToBottom = async () => {
@@ -390,6 +400,10 @@ const sendMessage = async (content = inputMessage.value) => {
 }
 
 const deployApp = async () => {
+  if (!canManage.value) {
+    message.warning('只有应用作者或管理员可以部署该应用')
+    return
+  }
   if (!appId.value) {
     return
   }
@@ -415,6 +429,41 @@ const deployApp = async () => {
   } finally {
     deploying.value = false
   }
+}
+
+const cancelDeployApp = async () => {
+  if (!canManage.value) {
+    message.warning('只有应用作者或管理员可以取消部署该应用')
+    return
+  }
+  if (!appId.value) {
+    return
+  }
+
+  canceling.value = true
+  try {
+    const res = await cancelDeploy({ appId: appId.value as unknown as number })
+    if (res.data.code !== 0) {
+      message.error(res.data.message || '取消部署失败')
+      return
+    }
+
+    message.success(res.data.data || '取消部署成功')
+    await loadApp()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '取消部署失败，请稍后重试')
+  } finally {
+    canceling.value = false
+  }
+}
+
+const openDeployedApp = () => {
+  if (!deployedUrl.value) {
+    message.info('当前应用尚未部署')
+    return
+  }
+
+  window.open(deployedUrl.value, '_blank', 'noopener,noreferrer')
 }
 
 const goEdit = () => {
@@ -459,7 +508,31 @@ onBeforeUnmount(() => {
       </button>
       <a-space>
         <a-button @click="router.push(`/app/detail/${appId}`)">详情</a-button>
-        <a-button type="primary" :loading="deploying" class="deploy-btn" @click="deployApp">
+        <a-button v-if="isDeployed" @click="openDeployedApp">访问已部署</a-button>
+        <a-popconfirm
+          v-if="canManage && isDeployed"
+          title="确定取消部署该应用吗？"
+          ok-text="确定"
+          cancel-text="取消"
+          @confirm="cancelDeployApp"
+        >
+          <a-button
+            danger
+            :loading="canceling"
+            :disabled="deploying"
+            class="deploy-btn deploy-btn--danger"
+          >
+            取消部署
+          </a-button>
+        </a-popconfirm>
+        <a-button
+          v-else-if="canManage"
+          type="primary"
+          :loading="deploying"
+          :disabled="canceling"
+          class="deploy-btn"
+          @click="deployApp"
+        >
           部署
         </a-button>
       </a-space>
@@ -582,6 +655,11 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   background: #111827;
   border-color: #111827;
+}
+
+.deploy-btn--danger {
+  background: #fff2f0;
+  border-color: #ff4d4f;
 }
 
 .chat-workspace {

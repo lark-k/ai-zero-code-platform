@@ -54,6 +54,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private UserService userService;
     @Resource
     private AiCodeGenFacade aiCodeGenFacade;
+    @Resource
+    private AppMapper appMapper;
 
     @Override
     public Long addApp(AddAppDTO addAppDTO, HttpServletRequest request) {
@@ -492,5 +494,37 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "取消置顶失败");
         }
         return true;
+    }
+
+    @Override
+    public String cancelDeploy(Long appId, UserLoginVO userLoginVO) {
+        // 校验参数
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        // 校验登录用户
+        ThrowUtils.throwIf(userLoginVO == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 校验应用是否存在
+        App app = getById(appId);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        // 判断是否部署
+        String deployKey = app.getDeployKey();
+        if (StrUtil.isBlank(deployKey)) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "该应用未部署");
+        }
+        // 将deployKey置空
+        int rows = appMapper.clearDeployInfo(appId);
+        boolean success = rows > 0;
+        if (!success) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用表更新失败");
+        }
+        // 删除部署的相关文件
+        String deleteDir = CodeFileSaveConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
+        try {
+            FileUtil.del(deleteDir);
+        } catch (IORuntimeException e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "部署文件删除失败");
+        }
+        return "取消部署成功";
     }
 }
