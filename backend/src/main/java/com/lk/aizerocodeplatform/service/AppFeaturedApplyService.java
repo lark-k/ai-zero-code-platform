@@ -1,9 +1,7 @@
 package com.lk.aizerocodeplatform.service;
 
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.AddFeaturedApplyDTO;
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.DeleteFeaturedApplyDTO;
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.PageQueryFeatureApplyDTO;
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.UpdateFeaturedApplyDTO;
+import com.lk.aizerocodeplatform.model.dto.app_featured_apply.*;
+import com.lk.aizerocodeplatform.model.vo.app_featured_apply.AdminCheckVO;
 import com.lk.aizerocodeplatform.model.vo.app_featured_apply.PageQueryFeatureApplyVO;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -67,4 +65,48 @@ public interface AppFeaturedApplyService extends IService<AppFeaturedApply> {
      * @return 多个PageQueryFeatureApplyVO对象
      */
     List<PageQueryFeatureApplyVO> getPageQueryFeatureApplyVOList(List<AppFeaturedApply> appFeaturedApplyList);
+
+    /**
+     * 同意精选应用申请
+     *
+     * @param adminCheckDTO 管理员审查请求信息
+     */
+    String agreeApplyByAdmin(AdminCheckDTO adminCheckDTO, HttpServletRequest request);
+
+    /**
+     * 拒绝精选应用申请
+     *
+     * @param adminCheckDTO 管理员审查请求信息
+     */
+    String disagreeApplyByAdmin(AdminCheckDTO adminCheckDTO, HttpServletRequest request);
+
+    /**
+     * 撤销精选应用申请
+     *
+     * @param adminCheckDTO 管理员审查请求信息
+     */
+    String cancelApplyByAdmin(AdminCheckDTO adminCheckDTO, HttpServletRequest request);
+
+    /**
+     * 管理员分页条件查询审查列表
+     *
+     * @param adminPageQueryFeatureApplyDTO 分页查询信息
+     * @param request                       request请求
+     * @return 分页查询后的结果列表
+     */
+    Page<AdminCheckVO> adminCheckPageQuery(AdminPageQueryFeatureApplyDTO adminPageQueryFeatureApplyDTO, HttpServletRequest request);
+
+    /**
+     * 封装管理员分页查询条件
+     *
+     * @param adminPageQueryFeatureApplyDTO 分页查询请求信息
+     * @return 查询条件
+     */
+    QueryWrapper getAdminCheckPageQueryWrapper(AdminPageQueryFeatureApplyDTO adminPageQueryFeatureApplyDTO);
+
+    /**
+     * 将AppFeaturedApply转换为AdminCheckVO
+     */
+    List<AdminCheckVO> getAdminCheckPageVOList(List<AppFeaturedApply> appFeaturedApplyList);
+
 }

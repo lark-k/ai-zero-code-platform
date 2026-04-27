@@ -1,11 +1,11 @@
 package com.lk.aizerocodeplatform.controller;
 
+import com.lk.aizerocodeplatform.annotation.AuthCheck;
 import com.lk.aizerocodeplatform.common.BaseResponse;
 import com.lk.aizerocodeplatform.common.ResultUtils;
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.AddFeaturedApplyDTO;
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.DeleteFeaturedApplyDTO;
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.PageQueryFeatureApplyDTO;
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.UpdateFeaturedApplyDTO;
+import com.lk.aizerocodeplatform.constant.UserConstant;
+import com.lk.aizerocodeplatform.model.dto.app_featured_apply.*;
+import com.lk.aizerocodeplatform.model.vo.app_featured_apply.AdminCheckVO;
 import com.lk.aizerocodeplatform.model.vo.app_featured_apply.PageQueryFeatureApplyVO;
 import com.mybatisflex.core.paginate.Page;
 import io.swagger.v3.oas.annotations.Operation;
@@ -55,6 +55,34 @@ public class AppFeaturedApplyController {
     @PostMapping(value = "/pageQuery")
     public BaseResponse<Page<PageQueryFeatureApplyVO>> getPageQueryFeatureApplyVOList(@RequestBody PageQueryFeatureApplyDTO pageQueryFeatureApplyDTO, HttpServletRequest request) {
         return ResultUtils.success(appFeaturedApplyService.pageQueryAppFeaturedApply(pageQueryFeatureApplyDTO, request));
+    }
+
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @Operation(summary = "管理员同意应用精选申请")
+    @PostMapping(value = "/admin/agreeApply")
+    public BaseResponse<String> agreeApply(@RequestBody AdminCheckDTO adminCheckDTO, HttpServletRequest request) {
+        return ResultUtils.success(appFeaturedApplyService.agreeApplyByAdmin(adminCheckDTO, request));
+    }
+
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @Operation(summary = "管理员拒绝应用精选申请")
+    @PostMapping(value = "/admin/disagreeApply")
+    public BaseResponse<String> disagreeApply(@RequestBody AdminCheckDTO adminCheckDTO, HttpServletRequest request) {
+        return ResultUtils.success(appFeaturedApplyService.disagreeApplyByAdmin(adminCheckDTO, request));
+    }
+
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @Operation(summary = "管理员撤销应用精选申请")
+    @PostMapping(value = "/admin/cancelApply")
+    public BaseResponse<String> cancelApply(@RequestBody AdminCheckDTO adminCheckDTO, HttpServletRequest request) {
+        return ResultUtils.success(appFeaturedApplyService.cancelApplyByAdmin(adminCheckDTO, request));
+    }
+
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @Operation(summary = "管理员分页查询应用精选申请")
+    @PostMapping(value = "/admin/pageQueryApply")
+    public BaseResponse<Page<AdminCheckVO>> adminPageQueryApply(@RequestBody AdminPageQueryFeatureApplyDTO adminPageQueryFeatureApplyDTO, HttpServletRequest request) {
+        return ResultUtils.success(appFeaturedApplyService.adminCheckPageQuery(adminPageQueryFeatureApplyDTO, request));
     }
 
 }

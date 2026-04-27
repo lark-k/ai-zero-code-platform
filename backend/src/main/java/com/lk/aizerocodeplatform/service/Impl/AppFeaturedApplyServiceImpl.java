@@ -1,13 +1,12 @@
 package com.lk.aizerocodeplatform.service.Impl;
 
+import com.lk.aizerocodeplatform.constant.AppFeaturedApplyConstant;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.exception.ThrowUtils;
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.AddFeaturedApplyDTO;
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.DeleteFeaturedApplyDTO;
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.PageQueryFeatureApplyDTO;
-import com.lk.aizerocodeplatform.model.dto.app_featured_apply.UpdateFeaturedApplyDTO;
+import com.lk.aizerocodeplatform.model.dto.app_featured_apply.*;
 import com.lk.aizerocodeplatform.model.entity.App;
+import com.lk.aizerocodeplatform.model.vo.app_featured_apply.AdminCheckVO;
 import com.lk.aizerocodeplatform.model.vo.app_featured_apply.PageQueryFeatureApplyVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
 import com.lk.aizerocodeplatform.service.AppService;
@@ -187,5 +186,136 @@ public class AppFeaturedApplyServiceImpl extends ServiceImpl<AppFeaturedApplyMap
                     pageQueryFeatureApplyVoList.add(pageQueryFeatureApplyVO);
                 });
         return pageQueryFeatureApplyVoList;
+    }
+
+    @Override
+    public String agreeApplyByAdmin(AdminCheckDTO adminCheckDTO, HttpServletRequest request) {
+        // 判断管理员是否登录
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        if (currentUserLoginVo == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+        Long id = adminCheckDTO.getId();
+        String reviewRemark = adminCheckDTO.getReviewRemark();
+        // 判断申请是否存在
+        AppFeaturedApply appFeaturedApply = getById(id);
+        if (appFeaturedApply == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "申请不存在");
+        }
+        // 更新申请状态
+        AppFeaturedApply updateFeaturedApply = new AppFeaturedApply();
+        updateFeaturedApply.setId(id);
+        updateFeaturedApply.setReviewRemark(reviewRemark);
+        updateFeaturedApply.setReviewTime(LocalDateTime.now());
+        updateFeaturedApply.setReviewUserId(currentUserLoginVo.getId());
+        updateFeaturedApply.setStatus(AppFeaturedApplyConstant.AGREE_APPLY);
+        updateById(updateFeaturedApply);
+        return "已同意";
+    }
+
+    @Override
+    public String disagreeApplyByAdmin(AdminCheckDTO adminCheckDTO, HttpServletRequest request) {
+        // 判断管理员是否登录
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        if (currentUserLoginVo == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+        Long id = adminCheckDTO.getId();
+        String reviewRemark = adminCheckDTO.getReviewRemark();
+        // 判断申请是否存在
+        AppFeaturedApply appFeaturedApply = getById(id);
+        if (appFeaturedApply == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "申请不存在");
+        }
+        // 更新申请状态
+        AppFeaturedApply updateFeaturedApply = new AppFeaturedApply();
+        updateFeaturedApply.setId(id);
+        updateFeaturedApply.setReviewRemark(reviewRemark);
+        updateFeaturedApply.setReviewTime(LocalDateTime.now());
+        updateFeaturedApply.setReviewUserId(currentUserLoginVo.getId());
+        updateFeaturedApply.setStatus(AppFeaturedApplyConstant.DISAGREE_APPLY);
+        updateById(updateFeaturedApply);
+        return "已拒绝";
+    }
+
+    @Override
+    public String cancelApplyByAdmin(AdminCheckDTO adminCheckDTO, HttpServletRequest request) {
+        // 判断管理员是否登录
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        if (currentUserLoginVo == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+        Long id = adminCheckDTO.getId();
+        String reviewRemark = adminCheckDTO.getReviewRemark();
+        // 判断申请是否存在
+        AppFeaturedApply appFeaturedApply = getById(id);
+        if (appFeaturedApply == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "申请不存在");
+        }
+        // 更新申请状态
+        AppFeaturedApply updateFeaturedApply = new AppFeaturedApply();
+        updateFeaturedApply.setId(id);
+        updateFeaturedApply.setReviewRemark(reviewRemark);
+        updateFeaturedApply.setReviewTime(LocalDateTime.now());
+        updateFeaturedApply.setReviewUserId(currentUserLoginVo.getId());
+        updateFeaturedApply.setStatus(AppFeaturedApplyConstant.CANCEL_APPLY);
+        updateById(updateFeaturedApply);
+        return "已撤销";
+    }
+
+    @Override
+    public Page<AdminCheckVO> adminCheckPageQuery(AdminPageQueryFeatureApplyDTO adminPageQueryFeatureApplyDTO, HttpServletRequest request) {
+        // 判断参数
+        ThrowUtils.throwIf(adminPageQueryFeatureApplyDTO == null, ErrorCode.PARAMS_ERROR);
+        // 验证登录
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        if (currentUserLoginVo == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+        int pageNum = adminPageQueryFeatureApplyDTO.getPageNum();
+        int pageSize = adminPageQueryFeatureApplyDTO.getPageSize();
+        // 封装查询条件
+        QueryWrapper queryWrapper = getAdminCheckPageQueryWrapper(adminPageQueryFeatureApplyDTO);
+        // 分页查询
+        Page<AppFeaturedApply> queryResult = this.page(Page.of(pageNum, pageSize), queryWrapper);
+        List<AppFeaturedApply> records = queryResult.getRecords();
+        // 封装结果信息并返回
+        List<AdminCheckVO> adminCheckPageVOList = getAdminCheckPageVOList(records);
+        Page<AdminCheckVO> adminCheckVoPage = new Page<>(pageNum, pageSize, queryResult.getTotalRow());
+        adminCheckVoPage.setRecords(adminCheckPageVOList);
+        return adminCheckVoPage;
+    }
+
+    @Override
+    public QueryWrapper getAdminCheckPageQueryWrapper(AdminPageQueryFeatureApplyDTO adminPageQueryFeatureApplyDTO) {
+        Long id = adminPageQueryFeatureApplyDTO.getId();
+        Long appId = adminPageQueryFeatureApplyDTO.getAppId();
+        Long userId = adminPageQueryFeatureApplyDTO.getUserId();
+        String applyReason = adminPageQueryFeatureApplyDTO.getApplyReason();
+        String status = adminPageQueryFeatureApplyDTO.getStatus();
+        String reviewRemark = adminPageQueryFeatureApplyDTO.getReviewRemark();
+        Long reviewUserId = adminPageQueryFeatureApplyDTO.getReviewUserId();
+        String sortField = adminPageQueryFeatureApplyDTO.getSortField();
+        String sortOrder = adminPageQueryFeatureApplyDTO.getSortOrder();
+        return QueryWrapper.create()
+                .eq("id", id)
+                .eq("appId", appId)
+                .eq("userId", userId)
+                .like("applyReason", applyReason)
+                .eq("status", status)
+                .like("reviewRemark", reviewRemark)
+                .eq("reviewUserId", reviewUserId)
+                .orderBy(sortField, "ascend".equals(sortOrder));
+    }
+
+    @Override
+    public List<AdminCheckVO> getAdminCheckPageVOList(List<AppFeaturedApply> appFeaturedApplyList) {
+        ArrayList<AdminCheckVO> adminCheckVoList = new ArrayList<>();
+        appFeaturedApplyList.forEach(appFeaturedApply -> {
+            AdminCheckVO adminCheckVO = new AdminCheckVO();
+            BeanUtils.copyProperties(appFeaturedApply, adminCheckVO);
+            adminCheckVoList.add(adminCheckVO);
+        });
+        return adminCheckVoList;
     }
 }
