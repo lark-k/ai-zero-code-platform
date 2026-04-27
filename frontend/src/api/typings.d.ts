@@ -3,12 +3,50 @@ declare namespace API {
     initPrompt?: string
   }
 
+  type AddFeaturedApplyDTO = {
+    appId?: number
+    applyReason?: string
+  }
+
   type AddUserDTO = {
     userName?: string
     userAccount?: string
     userAvatar?: string
     userProfile?: string
     userRole?: string
+  }
+
+  type AdminCheckDTO = {
+    id?: number
+    appId?: number
+    reviewRemark?: string
+  }
+
+  type AdminCheckVO = {
+    id?: number
+    appId?: number
+    userId?: number
+    applyReason?: string
+    status?: string
+    reviewRemark?: string
+    reviewUserId?: number
+    reviewTime?: string
+    createTime?: string
+    updateTime?: string
+  }
+
+  type AdminPageQueryFeatureApplyDTO = {
+    pageNum?: number
+    pageSize?: number
+    sortField?: string
+    sortOrder?: string
+    id?: number
+    appId?: number
+    userId?: number
+    applyReason?: string
+    status?: string
+    reviewRemark?: string
+    reviewUserId?: number
   }
 
   type AppAdminUpdateDTO = {
@@ -61,9 +99,21 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponsePageAdminCheckVO = {
+    code?: number
+    data?: PageAdminCheckVO
+    message?: string
+  }
+
   type BaseResponsePageAppVO = {
     code?: number
     data?: PageAppVO
+    message?: string
+  }
+
+  type BaseResponsePagePageQueryFeatureApplyVO = {
+    code?: number
+    data?: PagePageQueryFeatureApplyVO
     message?: string
   }
 
@@ -110,6 +160,10 @@ declare namespace API {
     id?: number
   }
 
+  type DeleteFeaturedApplyDTO = {
+    id?: number
+  }
+
   type DeleteUserDTO = {
     id?: number
   }
@@ -130,6 +184,15 @@ declare namespace API {
     id: number
   }
 
+  type PageAdminCheckVO = {
+    records?: AdminCheckVO[]
+    pageNumber?: number
+    pageSize?: number
+    totalPage?: number
+    totalRow?: number
+    optimizeCountQuery?: boolean
+  }
+
   type PageAppVO = {
     records?: AppVO[]
     pageNumber?: number
@@ -137,6 +200,38 @@ declare namespace API {
     totalPage?: number
     totalRow?: number
     optimizeCountQuery?: boolean
+  }
+
+  type PagePageQueryFeatureApplyVO = {
+    records?: PageQueryFeatureApplyVO[]
+    pageNumber?: number
+    pageSize?: number
+    totalPage?: number
+    totalRow?: number
+    optimizeCountQuery?: boolean
+  }
+
+  type PageQueryFeatureApplyDTO = {
+    pageNum?: number
+    pageSize?: number
+    sortField?: string
+    sortOrder?: string
+    id?: number
+    appId?: number
+    applyReason?: string
+    status?: string
+  }
+
+  type PageQueryFeatureApplyVO = {
+    id?: number
+    appId?: number
+    applyReason?: string
+    status?: string
+    reviewRemark?: string
+    reviewUserId?: number
+    reviewTime?: string
+    createTime?: string
+    updateTime?: string
   }
 
   type PageUserVO = {
@@ -175,6 +270,13 @@ declare namespace API {
     userRole?: string
   }
 
+  type ReAddFeaturedApplyDTO = {
+    id?: number
+    appId?: number
+    applyReason?: string
+    status?: string
+  }
+
   type ServerSentEventString = true
 
   type serveStaticResourceParams = {
@@ -188,6 +290,11 @@ declare namespace API {
   type UpdateAppDTO = {
     id?: number
     appName?: string
+  }
+
+  type UpdateFeaturedApplyDTO = {
+    id?: number
+    applyReason?: string
   }
 
   type UpdateUserDTO = {

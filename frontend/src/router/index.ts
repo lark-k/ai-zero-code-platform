@@ -1,5 +1,6 @@
 import { message } from 'ant-design-vue'
 import { createRouter, createWebHistory } from 'vue-router'
+
 import pinia from '@/plugins/pinia'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 
@@ -8,9 +9,11 @@ const UserLoginPage = () => import('@/pages/user/UserLoginPage.vue')
 const UserRegisterPage = () => import('@/pages/user/UserRegisterPage.vue')
 const UserManagePage = () => import('@/pages/admin/UserManagePage.vue')
 const AppManagePage = () => import('@/pages/admin/AppManagePage.vue')
+const AppFeaturedApplyManagePage = () => import('@/pages/admin/AppFeaturedApplyManagePage.vue')
 const AppChatPage = () => import('@/pages/app/AppChatPage.vue')
 const AppDetailPage = () => import('@/pages/app/AppDetailPage.vue')
 const AppEditPage = () => import('@/pages/app/AppEditPage.vue')
+const AppFeaturedApplyPage = () => import('@/pages/app/AppFeaturedApplyPage.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -41,7 +44,7 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: '主页',
+      name: '首页',
       component: HomePage,
     },
     {
@@ -76,6 +79,14 @@ const router = createRouter({
       },
     },
     {
+      path: '/app/featured/apply',
+      name: '精选申请',
+      component: AppFeaturedApplyPage,
+      meta: {
+        loginOnly: true,
+      },
+    },
+    {
       path: '/admin/userManage',
       name: '用户管理',
       component: UserManagePage,
@@ -87,6 +98,14 @@ const router = createRouter({
       path: '/admin/appManage',
       name: '应用管理',
       component: AppManagePage,
+      meta: {
+        adminOnly: true,
+      },
+    },
+    {
+      path: '/admin/appFeaturedApplyManage',
+      name: '精选申请审核',
+      component: AppFeaturedApplyManagePage,
       meta: {
         adminOnly: true,
       },

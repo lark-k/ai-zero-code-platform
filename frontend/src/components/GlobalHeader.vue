@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import logoUrl from '@/assets/logo.png'
+import { adminPageQueryApply } from '@/api/shenqingyingyongjingxuanxiangguanjiekou.ts'
 import { userLogout } from '@/api/yonghuxiangguanjiekou.ts'
+import {
+  FEATURED_APPLY_PENDING_CHANGED_EVENT,
+  FEATURED_APPLY_STATUS,
+} from '@/constants/featuredApply'
 import { headerMenuItems } from '@/config/menu'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 
@@ -12,24 +17,82 @@ const loginUserStore = useLoginUserStore()
 const route = useRoute()
 const router = useRouter()
 
+const pendingApplyCount = ref(0)
+let pendingCountTimer: number | undefined
+
 const visibleMenuItems = computed(() =>
-  headerMenuItems.filter((item) => !item.adminOnly || loginUserStore.isAdmin),
+  headerMenuItems.filter((item) => {
+    if (item.adminOnly) {
+      return loginUserStore.isAdmin
+    }
+    if (item.loginOnly) {
+      return loginUserStore.isLoggedIn
+    }
+    return true
+  }),
 )
 
 const displayName = computed(
   () => loginUserStore.loginUser.userName || loginUserStore.loginUser.userAccount || '访客用户',
 )
 const displayInitial = computed(() => displayName.value.slice(0, 1).toUpperCase())
+const pendingApplyBadgeCount = computed(() =>
+  pendingApplyCount.value > 99 ? '99+' : pendingApplyCount.value,
+)
+
+const shouldShowPendingBadge = (menuKey: string) =>
+  menuKey === 'featured-apply-manage' && pendingApplyCount.value > 0
+
+const fetchPendingApplyCount = async () => {
+  if (!loginUserStore.isAdmin) {
+    pendingApplyCount.value = 0
+    return
+  }
+
+  try {
+    const res = await adminPageQueryApply({
+      pageNum: 1,
+      pageSize: 1,
+      status: FEATURED_APPLY_STATUS.PENDING,
+    })
+    if (res.data.code === 0) {
+      pendingApplyCount.value = res.data.data?.totalRow ?? 0
+    }
+  } catch {
+    pendingApplyCount.value = 0
+  }
+}
+
+const clearPendingCountTimer = () => {
+  if (pendingCountTimer) {
+    window.clearInterval(pendingCountTimer)
+    pendingCountTimer = undefined
+  }
+}
+
+const startPendingCountTimer = () => {
+  clearPendingCountTimer()
+  if (!loginUserStore.isAdmin) {
+    return
+  }
+  pendingCountTimer = window.setInterval(() => {
+    void fetchPendingApplyCount()
+  }, 30000)
+}
+
+const handlePendingChanged = () => {
+  void fetchPendingApplyCount()
+}
 
 const goToLogin = () => {
-  router.push({
+  void router.push({
     path: '/user/login',
     query: route.fullPath !== '/' ? { redirect: route.fullPath } : undefined,
   })
 }
 
 const goToRegister = () => {
-  router.push({
+  void router.push({
     path: '/user/register',
     query: route.fullPath !== '/' ? { redirect: route.fullPath } : undefined,
   })
@@ -37,7 +100,7 @@ const goToRegister = () => {
 
 const navigateTo = (path: string) => {
   if (route.path !== path) {
-    router.push(path)
+    void router.push(path)
   }
 }
 
@@ -48,6 +111,8 @@ const handleLogout = async () => {
       message.error(res.data.message || '退出登录失败')
       return
     }
+    clearPendingCountTimer()
+    pendingApplyCount.value = 0
     loginUserStore.resetLoginUser()
     message.success('已退出登录')
     await router.push('/')
@@ -55,6 +120,29 @@ const handleLogout = async () => {
     message.error(error instanceof Error ? error.message : '退出登录失败，请稍后重试')
   }
 }
+
+watch(
+  () => [loginUserStore.isAdmin, route.fullPath],
+  () => {
+    if (!loginUserStore.isAdmin) {
+      clearPendingCountTimer()
+      pendingApplyCount.value = 0
+      return
+    }
+    void fetchPendingApplyCount()
+    startPendingCountTimer()
+  },
+  { immediate: true },
+)
+
+onMounted(() => {
+  window.addEventListener(FEATURED_APPLY_PENDING_CHANGED_EVENT, handlePendingChanged)
+})
+
+onBeforeUnmount(() => {
+  clearPendingCountTimer()
+  window.removeEventListener(FEATURED_APPLY_PENDING_CHANGED_EVENT, handlePendingChanged)
+})
 </script>
 
 <template>
@@ -77,7 +165,15 @@ const handleLogout = async () => {
           :class="{ 'global-header__nav-item--active': route.path === item.path }"
           @click="navigateTo(item.path)"
         >
-          {{ item.label }}
+          <a-badge
+            v-if="shouldShowPendingBadge(item.key)"
+            :count="pendingApplyBadgeCount"
+            :overflow-count="99"
+            class="global-header__nav-badge"
+          >
+            <span>{{ item.label }}</span>
+          </a-badge>
+          <span v-else>{{ item.label }}</span>
         </button>
       </nav>
 
@@ -90,7 +186,7 @@ const handleLogout = async () => {
             <div class="global-header__user-text">
               <span class="global-header__user-name">{{ displayName }}</span>
               <span class="global-header__user-role">
-                {{ loginUserStore.isAdmin ? '管理员账号' : '已登录用户' }}
+                {{ loginUserStore.isAdmin ? '管理员账户' : '已登录用户' }}
               </span>
             </div>
           </div>
@@ -198,6 +294,10 @@ const handleLogout = async () => {
 
 .global-header__nav-item--active::after {
   background: linear-gradient(90deg, #2d7ff9, #6e84ff);
+}
+
+.global-header__nav-badge :deep(.ant-badge-count) {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.92);
 }
 
 .global-header__actions {

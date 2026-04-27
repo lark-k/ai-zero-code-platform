@@ -2,10 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  appDeploy,
-  getAppVoById,
-} from '@/api/yingyongmokuaixiangguanjiekou.ts'
+
+import { appDeploy, getAppVoById } from '@/api/yingyongmokuaixiangguanjiekou.ts'
+import { formatDateTime } from '@/constants/featuredApply'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 
 const API_BASE_URL = 'http://localhost:8123/api'
@@ -25,23 +24,13 @@ const isOwner = computed(
 const canManage = computed(() => loginUserStore.isAdmin || isOwner.value)
 const deployedUrl = computed(() => (app.value?.deployKey ? `http://localhost/${app.value.deployKey}` : ''))
 
-const formatTime = (time?: string) => {
-  if (!time) {
-    return '-'
-  }
-  const date = new Date(time)
-  if (Number.isNaN(date.getTime())) {
-    return time
-  }
-  return date.toLocaleString('zh-CN')
-}
-
 const loadApp = async () => {
   if (!appId.value) {
-    message.error('应用 id 不正确')
+    message.error('应用 ID 不正确')
     await router.push('/')
     return
   }
+
   loading.value = true
   try {
     const res = await getAppVoById({ id: appId.value as unknown as number })
@@ -63,6 +52,7 @@ const deployApp = async () => {
     message.warning('只有应用作者或管理员可以部署该应用')
     return
   }
+
   deploying.value = true
   try {
     const res = await appDeploy({ appId: appId.value as unknown as number })
@@ -70,6 +60,7 @@ const deployApp = async () => {
       message.error(res.data.message || '部署失败')
       return
     }
+
     Modal.success({
       title: '部署成功',
       content: res.data.data,
@@ -81,6 +72,25 @@ const deployApp = async () => {
   } finally {
     deploying.value = false
   }
+}
+
+const goToFeaturedApply = () => {
+  void router.push({
+    path: '/app/featured/apply',
+    query: {
+      appId: appId.value,
+      action: 'create',
+    },
+  })
+}
+
+const goToFeaturedReview = () => {
+  void router.push({
+    path: '/admin/appFeaturedApplyManage',
+    query: {
+      appId: appId.value,
+    },
+  })
 }
 
 onMounted(() => {
@@ -100,6 +110,8 @@ onMounted(() => {
         <a-space wrap>
           <a-button @click="router.push('/')">返回首页</a-button>
           <a-button v-if="isOwner" @click="router.push(`/app/chat/${appId}`)">继续生成</a-button>
+          <a-button v-if="isOwner" @click="goToFeaturedApply">申请精选</a-button>
+          <a-button v-if="loginUserStore.isAdmin" @click="goToFeaturedReview">审核申请</a-button>
           <a-button v-if="canManage" @click="router.push(`/app/edit/${appId}`)">编辑信息</a-button>
           <a-button v-if="canManage" type="primary" :loading="deploying" @click="deployApp">部署</a-button>
         </a-space>
@@ -119,9 +131,9 @@ onMounted(() => {
             </a-descriptions-item>
             <a-descriptions-item label="代码类型">{{ app?.codeGenType || '-' }}</a-descriptions-item>
             <a-descriptions-item label="优先级">{{ app?.priority ?? 0 }}</a-descriptions-item>
-            <a-descriptions-item label="创建时间">{{ formatTime(app?.createTime) }}</a-descriptions-item>
-            <a-descriptions-item label="更新时间">{{ formatTime(app?.updateTime) }}</a-descriptions-item>
-            <a-descriptions-item label="部署时间">{{ formatTime(app?.deployedTime) }}</a-descriptions-item>
+            <a-descriptions-item label="创建时间">{{ formatDateTime(app?.createTime) }}</a-descriptions-item>
+            <a-descriptions-item label="更新时间">{{ formatDateTime(app?.updateTime) }}</a-descriptions-item>
+            <a-descriptions-item label="部署时间">{{ formatDateTime(app?.deployedTime) }}</a-descriptions-item>
             <a-descriptions-item label="部署地址">
               <a v-if="deployedUrl" :href="deployedUrl" target="_blank" rel="noreferrer">{{ deployedUrl }}</a>
               <span v-else>-</span>
