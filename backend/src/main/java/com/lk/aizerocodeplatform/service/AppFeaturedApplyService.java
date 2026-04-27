@@ -109,4 +109,11 @@ public interface AppFeaturedApplyService extends IService<AppFeaturedApply> {
      */
     List<AdminCheckVO> getAdminCheckPageVOList(List<AppFeaturedApply> appFeaturedApplyList);
 
+    /**
+     * 审核如果没有通过，用户可以重新申请
+     * @param reAddFeaturedApplyDTO 重新申请请求信息
+     * @param request 请求
+     */
+    String reAddApply(ReAddFeaturedApplyDTO reAddFeaturedApplyDTO, HttpServletRequest request);
+
 }

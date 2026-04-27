@@ -364,4 +364,46 @@ public class AppFeaturedApplyServiceImpl extends ServiceImpl<AppFeaturedApplyMap
         });
         return adminCheckVoList;
     }
+
+    @Override
+    public String reAddApply(ReAddFeaturedApplyDTO reAddFeaturedApplyDTO, HttpServletRequest request) {
+        // 判断参数是否合法
+        ThrowUtils.throwIf(reAddFeaturedApplyDTO == null, ErrorCode.PARAMS_ERROR);
+        // 判断用户登录信息
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        if (currentUserLoginVo == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+        // 用户只能重新申请自己的应用
+        Long appId = reAddFeaturedApplyDTO.getAppId();
+        App app = appService.getById(appId);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        if (!app.getUserId().equals(currentUserLoginVo.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        // 判断该条申请的状态是否可以支持再次申请
+        String status = reAddFeaturedApplyDTO.getStatus();
+        if (status.equals(AppFeaturedApplyConstant.AGREE_APPLY)) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "申请已通过，无需再次申请");
+        }
+        if (status.equals(AppFeaturedApplyConstant.PENDING)) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "请耐心等待管理员审核");
+        }
+        // 重新更新申请理由和状态信息到申请表中
+        if (status.equals(AppFeaturedApplyConstant.DISAGREE_APPLY) || status.equals(AppFeaturedApplyConstant.CANCEL_APPLY)) {
+            AppFeaturedApply appFeaturedApply = new AppFeaturedApply();
+            appFeaturedApply.setId(reAddFeaturedApplyDTO.getId());
+            appFeaturedApply.setApplyReason(reAddFeaturedApplyDTO.getApplyReason());
+            appFeaturedApply.setStatus(AppFeaturedApplyConstant.PENDING);
+            appFeaturedApply.setUpdateTime(LocalDateTime.now());
+            boolean success = updateById(appFeaturedApply);
+            if (!success) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "申请表更新失败");
+            }
+        }
+        // 返回提示信息
+        return "已重新提交申请";
+    }
 }

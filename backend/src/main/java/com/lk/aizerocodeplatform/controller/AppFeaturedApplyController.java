@@ -85,4 +85,10 @@ public class AppFeaturedApplyController {
         return ResultUtils.success(appFeaturedApplyService.adminCheckPageQuery(adminPageQueryFeatureApplyDTO, request));
     }
 
+    @Operation(summary = "用户重新提交申请")
+    @PostMapping(value = "/reAdd")
+    public BaseResponse<String> reAddApply(@RequestBody ReAddFeaturedApplyDTO reAddFeaturedApplyDTO, HttpServletRequest request) {
+        return ResultUtils.success(appFeaturedApplyService.reAddApply(reAddFeaturedApplyDTO, request));
+    }
+
 }
