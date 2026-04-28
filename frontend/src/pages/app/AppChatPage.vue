@@ -16,6 +16,7 @@ interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   createTime?: string
+  rawContent?: string
   pendingContent?: string
   previewOnComplete?: boolean
   streamFinished?: boolean
@@ -60,6 +61,25 @@ const canManage = computed(() => loginUserStore.isAdmin || isOwner.value)
 const isDeployed = computed(() => Boolean(app.value?.deployKey))
 const deployedUrl = computed(() => (app.value?.deployKey ? `http://localhost/${app.value.deployKey}` : ''))
 const previewUrl = computed(() => `${API_BASE_URL}/static/${appId.value}?t=${previewVersion.value}`)
+
+const hasHtmlCodeBlock = (content: string) => /```html\s*[\r\n]/i.test(content)
+const hasMultiFileCodeBlocks = (content: string) =>
+  /```html\s*[\r\n]/i.test(content) &&
+  /```css\s*[\r\n]/i.test(content) &&
+  /```(?:js|javascript)\s*[\r\n]/i.test(content)
+
+const shouldRefreshPreviewFromResponse = (content: string) => {
+  const normalizedContent = content.trim()
+  if (!normalizedContent) {
+    return false
+  }
+
+  if (app.value?.codeGenType === 'multi_file') {
+    return hasMultiFileCodeBlocks(normalizedContent)
+  }
+
+  return hasHtmlCodeBlock(normalizedContent)
+}
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -420,6 +440,7 @@ const queueAssistantChunk = (assistantMessage: ChatMessage, rawData: string) => 
   if (!chunk) {
     return
   }
+  assistantMessage.rawContent = `${assistantMessage.rawContent || ''}${chunk}`
   assistantMessage.pendingContent = `${assistantMessage.pendingContent || ''}${chunk}`
   startTypewriter(assistantMessage)
 }
@@ -441,7 +462,6 @@ const sendMessage = async (content = inputMessage.value) => {
 
   closeSse()
   inputMessage.value = ''
-  previewReady.value = false
   sending.value = true
 
   const userMessage: ChatMessage = {
@@ -453,6 +473,7 @@ const sendMessage = async (content = inputMessage.value) => {
     id: `${Date.now()}-assistant`,
     role: 'assistant',
     content: '',
+    rawContent: '',
     pendingContent: '',
     previewOnComplete: false,
     streamFinished: false,
@@ -474,7 +495,9 @@ const sendMessage = async (content = inputMessage.value) => {
   }
 
   eventSource.addEventListener('done', () => {
-    assistantMessage.previewOnComplete = true
+    assistantMessage.previewOnComplete = shouldRefreshPreviewFromResponse(
+      assistantMessage.rawContent || assistantMessage.content,
+    )
     assistantMessage.streamFinished = true
     closeSse()
     startTypewriter(assistantMessage)
@@ -709,6 +732,10 @@ onBeforeUnmount(() => {
 
       <section class="preview-panel">
         <div v-if="previewReady" class="preview-frame-wrap">
+          <div v-if="sending" class="preview-loading-mask">
+            <a-spin />
+            <span>Updating preview...</span>
+          </div>
           <iframe :key="previewVersion" :src="previewUrl" title="生成后的网页展示"></iframe>
         </div>
         <div v-else class="preview-empty">
@@ -1069,10 +1096,32 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
+.preview-frame-wrap {
+  position: relative;
+}
+
 .preview-frame-wrap iframe {
   border: 0;
   border-radius: 16px;
   background: #ffffff;
+}
+
+.preview-loading-mask {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  color: #334155;
+  font-size: 13px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.1);
+  backdrop-filter: blur(10px);
 }
 
 .preview-empty {

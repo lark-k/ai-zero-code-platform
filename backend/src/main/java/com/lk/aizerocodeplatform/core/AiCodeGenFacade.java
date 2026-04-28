@@ -1,6 +1,7 @@
 package com.lk.aizerocodeplatform.core;
 
 import com.lk.aizerocodeplatform.ai.AiCodeGenService;
+import com.lk.aizerocodeplatform.ai.AiCodeGenServiceFactory;
 import com.lk.aizerocodeplatform.ai.model.HtmlCodeResult;
 import com.lk.aizerocodeplatform.ai.model.MultiFileCodeResult;
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
@@ -25,8 +26,11 @@ import java.io.File;
 @Service
 @Slf4j
 public class AiCodeGenFacade {
+//    @Resource
+//    private AiCodeGenService aiCodeGenService;
+
     @Resource
-    private AiCodeGenService aiCodeGenService;
+    private AiCodeGenServiceFactory aiCodeGenServiceFactory;
 
     /**
      * 生成代码并保存
@@ -57,7 +61,7 @@ public class AiCodeGenFacade {
      * @return 文件
      */
     private File generateCodeHtmlAndSave(String userMessage, Long appId) {
-        HtmlCodeResult htmlCodeResult = aiCodeGenService.generateHtmlCode(userMessage);
+        HtmlCodeResult htmlCodeResult = aiCodeGenServiceFactory.getAiCodeGenService(appId).generateHtmlCode(userMessage);
         return CodeFileSaveExecutor.executeCodeFileSave(htmlCodeResult, CodeGenTypeEnum.HTML, appId);
     }
 
@@ -69,7 +73,7 @@ public class AiCodeGenFacade {
      * @return 文件
      */
     private File generateCodeMultiFileAndSave(String userMessage, Long appId) {
-        MultiFileCodeResult multiFileCodeResult = aiCodeGenService.generateMultiFileCode(userMessage);
+        MultiFileCodeResult multiFileCodeResult = aiCodeGenServiceFactory.getAiCodeGenService(appId).generateMultiFileCode(userMessage);
         return CodeFileSaveExecutor.executeCodeFileSave(multiFileCodeResult, CodeGenTypeEnum.MULTI_FILE, appId);
     }
 
@@ -102,7 +106,7 @@ public class AiCodeGenFacade {
      * @return 文件
      */
     private Flux<String> generateCodeHtmlAndSaveStream(String userMessage, Long appId) {
-        Flux<String> codeStream = aiCodeGenService.generateHtmlCodeStream(userMessage);
+        Flux<String> codeStream = aiCodeGenServiceFactory.getAiCodeGenService(appId).generateHtmlCodeStream(userMessage);
         return processCodeStream(codeStream, CodeGenTypeEnum.HTML, appId);
     }
 
@@ -114,7 +118,7 @@ public class AiCodeGenFacade {
      * @return 文件
      */
     private Flux<String> generateCodeMultiFileAndSaveStream(String userMessage, Long appId) {
-        Flux<String> codeStream = aiCodeGenService.generateMultiFileCodeStream(userMessage);
+        Flux<String> codeStream = aiCodeGenServiceFactory.getAiCodeGenService(appId).generateMultiFileCodeStream(userMessage);
         return processCodeStream(codeStream, CodeGenTypeEnum.MULTI_FILE, appId);
     }
 

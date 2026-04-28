@@ -100,6 +100,19 @@
             <version>1.1.0-beta7</version>
         </dependency>
 
+        <!-- 引入langchain4j整合redis实现对话记忆保存的必要依赖 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-community-redis-spring-boot-starter</artifactId>
+            <version>1.1.0-beta7</version>
+        </dependency>
+
+        <!-- 引入本地缓存caffeine的依赖 -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
 
 
 

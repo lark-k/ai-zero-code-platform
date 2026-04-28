@@ -5,10 +5,15 @@ spring:
     username: root
     password: lk200202071672
     driver-class-name: com.mysql.cj.jdbc.Driver
-
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      ttl: 3600
+      password:
 langchain4j:
   open-ai:
-    chat-model:     # 普通聊天模型
+    chat-model: # 普通聊天模型
       api-key: sk-7ef8360fe7ee4cbabca95f0b0d631145
       base-url: https://api.deepseek.com
       model-name: deepseek-chat
@@ -18,7 +23,7 @@ langchain4j:
       # 配置模型输出json类型的数据
       strict-json-schema: true
       response-format: json_object
-    streaming-chat-model:   # 流式聊天模型（不支持结构化输出）
+    streaming-chat-model: # 流式聊天模型（不支持结构化输出）
       api-key: sk-7ef8360fe7ee4cbabca95f0b0d631145
       base-url: https://api.deepseek.com
       model-name: deepseek-chat
