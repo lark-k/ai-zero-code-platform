@@ -2,12 +2,21 @@ server:
   port: 8123
   servlet:
     context-path: /api
+    session:
+      cookie:
+        # cookie过期时间为1小时
+        max-age: 3600
 
 spring:
   application:
     name: ai-zero-code-platform
   profiles:
     active: local       # 激活local环境
+  session:
+    # 基于redis实现分布式session
+    store-type: redis
+    # session过期时间为1小时
+    timeout: 3600
 
 # springdoc-openapi项目配置
 springdoc:

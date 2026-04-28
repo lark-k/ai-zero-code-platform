@@ -113,7 +113,11 @@
             <artifactId>caffeine</artifactId>
         </dependency>
 
-
+        <!-- 实现分布式session必要的依赖：将session信息保存到redis中 -->
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-data-redis</artifactId>
+        </dependency>
 
 
     </dependencies>
