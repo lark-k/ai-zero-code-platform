@@ -51,7 +51,7 @@ public class MybatisFlexCodeGenerate {
         globalConfig.getStrategyConfig()
 //                .setTablePrefix("tb_")
 //                .setGenerateTable("user");
-                .setGenerateTable("app_featured_apply");
+                .setGenerateTable("chat_history");
         //设置生成 entity 并启用 Lombok
         globalConfig.enableEntity()
                 .setWithLombok(true)
