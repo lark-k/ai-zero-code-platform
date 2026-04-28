@@ -2591,3 +2591,457 @@ nginx -s reload
 
 # 五、对话历史模块
 
+## 1、新增对话历史
+
+```java
+public Boolean addChatHistory(Long appId, Long userId, String message, String messageType) {
+        // 判断参数是否合法
+        ThrowUtils.throwIf(appId == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        ThrowUtils.throwIf(userId == null, ErrorCode.NOT_LOGIN_ERROR);
+        ThrowUtils.throwIf(message == null, ErrorCode.PARAMS_ERROR, "对话内容为空");
+        ThrowUtils.throwIf(messageType == null, ErrorCode.PARAMS_ERROR, "不支持的消息类型");
+        // 信息入库
+        ChatHistory chatHistory = ChatHistory.builder()
+                .appId(appId)
+                .userId(userId)
+                .message(message)
+                .messageType(messageType)
+                .build();
+        return this.save(chatHistory);
+    }
+
+```
+
+用户发送消息时，调用该方法保存对话历史
+
+AI回复消息后，调用该方法保存对话历史
+
+```java
+public Flux<ServerSentEvent<String>> chatToGenCode(String message, Long appId, UserLoginVO userLoginVO) {
+        // 判断参数是否合法
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(userLoginVO == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 判断应用是否存在
+        App app = getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        // 每个用户只能与自己的应用对话
+        if (!userLoginVO.getId().equals(app.getUserId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        // 将用户消息保存到对话历史
+        chatHistoryService.addChatHistory(appId, userLoginVO.getId(), message, ChatMessageTypeEnum.User.getValue());
+        // 获取代码生成类型
+        String codeGenType = app.getCodeGenType();
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getByValue(codeGenType);
+        if (codeGenTypeEnum == null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "代码生成类型错误");
+        }
+        // 调用门面类，获取与AI对话的回复内容
+        Flux<String> codeContentStream = aiCodeGenFacade.generateCodeAndSaveStream(message, codeGenTypeEnum, appId);
+        // 用来汇总ai回复后的消息，然后将其保存到对话历史
+        StringBuffer aiResponse = new StringBuffer();
+        // 为了防止AI回复内容中的空格返回前端后被去掉，此处对回复内容再封装一层
+        return codeContentStream.map((chunk) -> {
+            // 收集ai回复的消息
+            aiResponse.append(chunk);
+            // 将AI回复的流式内容先放到map中
+            Map<String, String> chunkMap = Map.of("v", chunk);
+            String jsonStr = JSONUtil.toJsonStr(chunkMap);
+            return ServerSentEvent.<String>builder()
+                    .data(jsonStr)
+                    .build();
+        }).doOnComplete(() -> {
+            // 将ai消息保存到对话历史
+            String aiMessage = aiResponse.toString();
+            chatHistoryService.addChatHistory(appId, userLoginVO.getId(), aiMessage, ChatMessageTypeEnum.AI.getValue());
+        }).concatWith(Mono.just(
+                        // AI回复内容完毕后给前端回复一个结束事件
+                        ServerSentEvent.<String>builder()
+                                .data("")
+                                .event("done")
+                                .build()
+                )
+        );
+    }
+```
+
+## 2、关联删除对话历史
+
+```java
+public Boolean deleteChatHistory(Long appId) {
+        // 判断参数
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        // 删除该应用对应的对话历史数据
+        QueryWrapper queryWrapper = new QueryWrapper();
+        queryWrapper.eq("appId", appId);
+        return remove(queryWrapper);
+    }
+```
+
+用户/管理员删除应用时，同步删除该应用的对话历史
+
+```java
+/**
+     * 由于无论是用户还是管理员删除应用时都是使用removeById方法，所以重写该方法，
+     * 在该方法原有删除逻辑的基础上新增删除对话历史的逻辑。
+     *
+     * @param id 应用id
+     * @return 是否删除成功
+     */
+    @Override
+    public boolean removeById(@NonNull Serializable id) {
+        Long appId = Long.valueOf(id.toString());
+        // 删除该应用对应的对话历史数据
+        chatHistoryService.deleteChatHistory(appId);
+        // 执行原来的删除逻辑，根据id删除应用
+        return super.removeById(id);
+    }
+```
+
+## 3、游标查询
+
+在传统分页中，数据通常是 **基于页码或偏移量** 进行加载的。如果数据在分页过程发生了变化，比如插入新数据、删除老数据，用户看到的分页数据可能会出现不一致，导致用户错过或重复某些数据。
+
+```java
+ public Page<ChatHistory> getChatHistoryPage(ChatHistoryQueryDTO chatHistoryQueryDTO, HttpServletRequest request) {
+        // 判断参数是否合法
+        ThrowUtils.throwIf(chatHistoryQueryDTO == null, ErrorCode.PARAMS_ERROR);
+        // 判断查询资格
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        ThrowUtils.throwIf(currentUserLoginVo == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 拿到当前登录用户的id和权限
+        Long userId = currentUserLoginVo.getId();
+        String userRole = currentUserLoginVo.getUserRole();
+        if (!chatHistoryQueryDTO.getUserId().equals(userId) && !userRole.equals(UserConstant.ADMIN_ROLE)) {
+            // 普通用户只能查看自己的对话历史
+            // 管理员可以查看所有的对话历史
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        int pageSize = chatHistoryQueryDTO.getPageSize();
+        // 构造游标查询条件
+        QueryWrapper queryWrapper = getChatHistoryQueryWrapper(chatHistoryQueryDTO);
+        // 游标分页查询
+        return this.page(new Page<>(1, pageSize), queryWrapper);
+    }
+
+
+ public QueryWrapper getChatHistoryQueryWrapper(ChatHistoryQueryDTO chatHistoryQueryDTO) {
+        ThrowUtils.throwIf(chatHistoryQueryDTO == null, ErrorCode.PARAMS_ERROR);
+        Long id = chatHistoryQueryDTO.getId();
+        String message = chatHistoryQueryDTO.getMessage();
+        String messageType = chatHistoryQueryDTO.getMessageType();
+        Long appId = chatHistoryQueryDTO.getAppId();
+        Long userId = chatHistoryQueryDTO.getUserId();
+        LocalDateTime lastCreateTime = chatHistoryQueryDTO.getLastCreateTime();
+        String sortField = chatHistoryQueryDTO.getSortField();
+        String sortOrder = chatHistoryQueryDTO.getSortOrder();
+        QueryWrapper wrapper = QueryWrapper.create()
+                .eq("id", id)
+                .like("message", message)
+                .eq("messageType", messageType)
+                .eq("appId", appId)
+                .eq("userId", userId);
+        if (lastCreateTime != null) {
+            // 构造游标查询逻辑
+            wrapper.lt("createTime", lastCreateTime);
+        }
+        // 构造排序条件
+        if (StrUtil.isBlank(sortField)) {
+            // 排序字段为空时，默认按照创建时间排序
+            wrapper.orderBy("createTime", false);
+        } else {
+            // 排序字段不为空时，就按照排序字段排序
+            wrapper.orderBy(sortField, "ascend".equals(sortOrder));
+        }
+        return wrapper;
+    }
+```
+
+## 4、★基于redis实现对话记忆★
+
+### 引入依赖
+
+```xml
+<dependency>
+  <groupId>dev.langchain4j</groupId>
+  <artifactId>langchain4j-community-redis-spring-boot-starter</artifactId>
+  <version>1.1.0-beta7</version>
+</dependency>
+```
+
+### 配置 Redis
+
+```yaml
+spring:
+  # redis
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: 
+      ttl: 3600
+```
+
+注意，这里的 `ttl` 不是连接 Redis 的超时时间（timeout），而是过期时间（单位：秒），我这里设置 1 小时。前面也提到，如果消息数比较多，不设置的话 Redis 内存很容易占满。
+
+### 初始化RedisChatMemoryStore的Bean
+
+```java
+@Configuration
+@ConfigurationProperties(prefix = "spring.data.redis")
+@Data
+public class RedisChatMemoryStoreConfig {
+
+    private String host;
+
+    private int port;
+
+    private String password;
+
+    private long ttl;
+
+    @Bean
+    public RedisChatMemoryStore redisChatMemoryStore() {
+        return RedisChatMemoryStore.builder()
+                .host(host)
+                .port(port)
+                .password(password)
+                .ttl(ttl)
+                .build();
+    }
+}
+```
+
+注意，如果⁢⁢⁢⁢⁢你的 Redi‍‍‍s‍ ‍密码不为空‌‌‌，上‌述配‌置中还‎‎‎要添加‎ us‎e‏‏‏r 用户‏名配置：
+
+```java
+RedisChatMemoryStore.builder()
+    .user("你的用户名")
+```
+
+### 在启动⁢⁢⁢⁢⁢类中排除 ‍e‍m‍b‍e‍d‌di‌ng‌ 的‌‎自动‌‎装配，‎因‏为本‎项‏目用‎不‏到
+
+> 如果不排除会报错！
+
+```java
+@SpringBootApplication(exclude = {RedisEmbeddingStoreAutoConfiguration.class})
+```
+
+### 使用对话记忆
+
+之前所有应用共用⁢⁢⁢⁢⁢同一个 AI Service 实‍‍‍‍‍例，如果想隔离会话记忆，可以给每‌‌‌‌‌个应用分配一个专属的 AI Se‎‎‎‎‎rvice，每个 AI Serv‏‏‏‏‏ice 绑定独立的对话记忆。
+
+修改 AI⁢⁢⁢⁢⁢ Service‍‍‍‍ ‍工厂类，提供根‌‌‌‌据 ‌appId ‎‎‎‎获取 ‎AI Se‏‏‏‏rvic‏e 服务的方法。
+
+每次构造完 appId⁢⁢⁢⁢⁢ 对应的 AI 服务实例后，利用 **Caff‍‍‍‍‍eine 缓存**来存储，之后相同 appId‌‌‌‌‌  就能直接获取到 AI 服务实例，避免重‎‎‎‎‎复构造。注意，本地缓存占用的是内存，所以必须‏‏‏‏‏设置合理的过期策略防止内存泄漏。
+
+⁢⁢⁢⁢⁢对话记忆初始化‍时‍，‍需‍‍要从数据‌库中‌加载‌对话历‌‌‎史到‎记忆中。 
+
+```xml
+<dependency>
+    <groupId>com.github.ben-manes.caffeine</groupId>
+    <artifactId>caffeine</artifactId>
+</dependency>
+```
+
+```java
+package com.lk.aizerocodeplatform.ai;
+
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.lk.aizerocodeplatform.model.entity.ChatHistory;
+import com.lk.aizerocodeplatform.service.ChatHistoryService;
+import com.mybatisflex.core.query.QueryWrapper;
+import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.service.AiServices;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.time.Duration;
+import java.util.List;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/23 13:50
+ * 创建ai代码生成服务工厂，用于初始化服务
+ */
+@Slf4j
+@Configuration
+public class AiCodeGenServiceFactory {
+    @Resource
+    private ChatModel chatModel;
+    @Resource
+    private StreamingChatModel streamingChatModel;
+    @Resource
+    private RedisChatMemoryStore redisChatMemoryStore;
+    @Resource
+    private ChatHistoryService chatHistoryService;
+
+    /**
+     * Caffeine本质就是一个Map，只是能够更方便的进行管理里面的信息，比如设置过期时间等。
+     * 为了防止同一个appId会不断创建新的AiCodeGenService服务，这里引入Caffeine本地缓存。
+     * 即，在一定的时间内，如果同一个appId不断使用，就可以直接从缓存中拿到AiCodeGenService服务，
+     * 就不需要频繁的创建AiCodeGenService服务了！！！
+     */
+    private final Cache<Long, AiCodeGenService> serviceCache = Caffeine.newBuilder()
+            // 最大缓存1000条信息
+            .maximumSize(1000)
+            // 写入后30分钟过期
+            .expireAfterWrite(Duration.ofMinutes(30))
+            // 访问后10分钟过期
+            .expireAfterAccess(Duration.ofMinutes(10))
+            .removalListener((key, value, cause) -> {
+                log.info("Ai服务实例被移除，appId:{}，原因:{}", key, cause);
+            })
+            .build();
+
+
+    /**
+     * 获取带有记忆的AiCodeGenService服务
+     *
+     * @param appId 应用id
+     * @return 带有记忆的AiCodeGenService服务
+     */
+    public AiCodeGenService getAiCodeGenService(Long appId) {
+        // 先从Caffeine本地缓存中取，如果没有取到就调用createAiCodeGenService方法创建
+        return serviceCache.get(appId, this::createAiCodeGenService);
+    }
+
+    /**
+     * 通过appId创建AiCodeGenService，
+     * 用于隔离不同的对话记忆
+     *
+     * @param appId 应用id
+     * @return AI代码生成服务
+     */
+    private AiCodeGenService createAiCodeGenService(Long appId) {
+        // 创建对话记忆
+        MessageWindowChatMemory chatMemory = MessageWindowChatMemory.builder()
+                .id(appId)
+                .chatMemoryStore(redisChatMemoryStore)
+                .maxMessages(20)
+                .build();
+        // 首次创建AiCodeGenService需要从数据库中加载历史对话到对话记忆中
+        loadChatHistoryToMemory(appId, chatMemory, 20L);
+        return AiServices.builder(AiCodeGenService.class)
+                .chatModel(chatModel)
+                .streamingChatModel(streamingChatModel)
+                .chatMemory(chatMemory)
+                .build();
+    }
+
+    /**
+     * 加载对话历史到对话记忆中
+     *
+     * @param appId       应用id
+     * @param chatMemory  对话记忆
+     * @param maxMessages 最大加载对话历史的个数
+     * @return 加载成功的个数
+     */
+    Integer loadChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, Long maxMessages) {
+        try {
+            // 记录查询到的对话历史个数
+            Integer loadCount = 0;
+            // 构造数据库查询条件
+            QueryWrapper queryWrapper = QueryWrapper.create()
+                    .eq(ChatHistory::getAppId, appId)
+                    .orderBy(ChatHistory::getCreateTime, false)
+                    .limit(1, maxMessages);
+            // 根据查询条件查询数据库的对话历史信息
+            List<ChatHistory> chatHistories = chatHistoryService.list(queryWrapper);
+            // 反转列表，保证旧对话记录在前面，新对话记录在后面
+            chatHistories = chatHistories.reversed();
+            // 先清理对话记忆，防止信息重复
+            chatMemory.clear();
+            // 遍历查询到的对话历史信息，根据不同的消息类型存放在对话记忆中
+            for (ChatHistory chatHistory : chatHistories) {
+                if ("user".equals(chatHistory.getMessageType())) {
+                    chatMemory.add(new UserMessage(chatHistory.getMessage()));
+                }
+                if ("ai".equals(chatHistory.getMessageType())) {
+                    chatMemory.add(new AiMessage(chatHistory.getMessage()));
+                }
+                loadCount++;
+            }
+            log.info("成功为 appId: {} 加载了 {} 条历史对话", appId, loadCount);
+            return loadCount;
+        } catch (Exception e) {
+            log.error("加载历史对话失败，appId: {}, error: {}", appId, e.getMessage());
+            // 由于加载对话记忆不是特别重要，此处不抛出异常，保证系统主要功能可用
+            return 0;
+        }
+    }
+
+
+    @Bean
+    public AiCodeGenService aiCodeGenService() {
+//        return AiServices.builder(AiCodeGenService.class)
+//                .chatModel(chatModel)
+//                .streamingChatModel(streamingChatModel)
+//                .build();
+        // 为了保证跟之前的代码兼容，依旧提供一个默认的AI Service的bean
+        return getAiCodeGenService(0L);
+    }
+}
+
+```
+
+最后修改 `AiCodeGeneratorFacade`，所有方法使用的 AI Service 改为通过工厂根据 appId 获取 AI Service
+
+```java
+@Resource
+private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
+
+// 根据 appId 获取对应的 AI 服务实例
+AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
+
+```
+
+注意上述代⁢⁢⁢⁢码中的几个重要细‍‍‍节‍：      ‌‌‌  ‌      ‎‎‎   ‎     ‏‏‏    ‏      
+
+1. 查询起始点设置为 1 而不是 0，这是为了排除最新的用户消息。因为在对话流程中，用户消息被添加到数据库后，AI 服务也会自动将用户消息添加到记忆中，如果不排除会导致消息重复。
+2. 注意反转从数据库中查到的消息列表，确保加载到记忆中的消息是按时间正序的。
+3. 加载前先清理 Redis 中的历史对话记忆，防止重复加载。
+
+## 5、基于redis实现分布式session
+
+### 引入依赖
+
+```xml
+<!-- Spring Session + Redis -->
+<dependency>
+    <groupId>org.springframework.session</groupId>
+    <artifactId>spring-session-data-redis</artifactId>
+</dependency>
+
+```
+
+### 配置application.yml文件
+
+```yaml
+spring: 
+  # session 配置
+  session:
+    store-type: redis
+    # session 30 天过期
+    timeout: 2592000
+server:
+  port: 8123
+  servlet:
+    context-path: /api
+    # cookie 30 天过期
+    session:
+      cookie:
+        max-age: 2592000
+
+```
+
+> 以后，登录后的session信息就会保存到redis中进行管理了。
