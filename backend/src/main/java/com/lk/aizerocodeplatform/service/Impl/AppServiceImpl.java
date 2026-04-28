@@ -29,6 +29,7 @@ import com.lk.aizerocodeplatform.mapper.AppMapper;
 import com.lk.aizerocodeplatform.service.AppService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.NonNull;
 import org.springframework.beans.BeanUtils;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.io.File;
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -540,5 +542,21 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "部署文件删除失败");
         }
         return "取消部署成功";
+    }
+
+    /**
+     * 由于无论是用户还是管理员删除应用时都是使用removeById方法，所以重写该方法，
+     * 在该方法原有删除逻辑的基础上新增删除对话历史的逻辑。
+     *
+     * @param id 应用id
+     * @return 是否删除成功
+     */
+    @Override
+    public boolean removeById(@NonNull Serializable id) {
+        Long appId = Long.valueOf(id.toString());
+        // 删除该应用对应的对话历史数据
+        chatHistoryService.deleteChatHistory(appId);
+        // 执行原来的删除逻辑，根据id删除应用
+        return super.removeById(id);
     }
 }

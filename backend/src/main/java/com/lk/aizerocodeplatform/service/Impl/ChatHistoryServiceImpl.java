@@ -2,6 +2,7 @@ package com.lk.aizerocodeplatform.service.Impl;
 
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.exception.ThrowUtils;
+import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.lk.aizerocodeplatform.model.entity.ChatHistory;
 import com.lk.aizerocodeplatform.mapper.ChatHistoryMapper;
@@ -32,5 +33,15 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
                 .messageType(messageType)
                 .build();
         return this.save(chatHistory);
+    }
+
+    @Override
+    public Boolean deleteChatHistory(Long appId) {
+        // 判断参数
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        // 删除该应用对应的对话历史数据
+        QueryWrapper queryWrapper = new QueryWrapper();
+        queryWrapper.eq("appId", appId);
+        return remove(queryWrapper);
     }
 }
