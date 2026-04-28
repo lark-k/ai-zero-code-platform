@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
+import { pageQuery } from '@/api/duihualishixiangguanjiekou.ts'
 import {
   appDeploy,
   cancelDeploy,
@@ -14,6 +15,7 @@ interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  createTime?: string
   pendingContent?: string
   previewOnComplete?: boolean
   streamFinished?: boolean
@@ -22,6 +24,7 @@ interface ChatMessage {
 }
 
 const API_BASE_URL = 'http://localhost:8123/api'
+const HISTORY_PAGE_SIZE = 20
 const TYPEWRITER_INTERVAL = 28
 const TYPEWRITER_CHARS_PER_TICK = 2
 
@@ -30,11 +33,15 @@ const router = useRouter()
 const loginUserStore = useLoginUserStore()
 const app = ref<API.AppVO>()
 const loadingApp = ref(false)
+const loadingHistory = ref(false)
+const loadingMoreHistory = ref(false)
 const sending = ref(false)
 const deploying = ref(false)
 const canceling = ref(false)
 const inputMessage = ref('')
 const messages = ref<ChatMessage[]>([])
+const historyCursor = ref<string>()
+const hasMoreHistory = ref(false)
 const previewReady = ref(false)
 const previewVersion = ref(Date.now())
 const messageListRef = ref<HTMLElement>()
@@ -84,6 +91,88 @@ const closeSse = () => {
   if (eventSource) {
     eventSource.close()
     eventSource = null
+  }
+}
+
+const getChatRole = (messageType?: string): ChatMessage['role'] =>
+  messageType === 'user' ? 'user' : 'assistant'
+
+const toChatMessage = (record: API.ChatHistory): ChatMessage => ({
+  id: String(record.id ?? `${record.createTime}-${record.messageType}`),
+  role: getChatRole(record.messageType),
+  content: record.message || '',
+  createTime: record.createTime,
+})
+
+const appendHistoryMessages = (records: API.ChatHistory[], mode: 'replace' | 'prepend') => {
+  const sortedMessages = [...records]
+    .sort((a, b) => new Date(a.createTime || 0).getTime() - new Date(b.createTime || 0).getTime())
+    .map(toChatMessage)
+
+  if (mode === 'replace') {
+    messages.value = sortedMessages
+    return
+  }
+
+  const existingIds = new Set(messages.value.map((item) => item.id))
+  const nextMessages = sortedMessages.filter((item) => !existingIds.has(item.id))
+  messages.value = [...nextMessages, ...messages.value]
+}
+
+const loadHistory = async (loadMore = false) => {
+  if (!appId.value || !loginUserStore.loginUser.id) {
+    return
+  }
+
+  const previousScrollHeight = messageListRef.value?.scrollHeight ?? 0
+  const previousScrollTop = messageListRef.value?.scrollTop ?? 0
+
+  if (loadMore) {
+    if (!hasMoreHistory.value || loadingMoreHistory.value) {
+      return
+    }
+    loadingMoreHistory.value = true
+  } else {
+    loadingHistory.value = true
+    historyCursor.value = undefined
+    hasMoreHistory.value = false
+  }
+
+  try {
+    const res = await pageQuery({
+      appId: appId.value,
+      userId: loginUserStore.loginUser.id,
+      pageSize: HISTORY_PAGE_SIZE,
+      ...(loadMore && historyCursor.value ? { lastCreateTime: historyCursor.value } : {}),
+    })
+    if (res.data.code !== 0) {
+      message.error(res.data.message || '加载历史对话失败')
+      return
+    }
+
+    const records = res.data.data?.records || []
+    appendHistoryMessages(records, loadMore ? 'prepend' : 'replace')
+    const oldestRecord = records[records.length - 1]
+    historyCursor.value = oldestRecord?.createTime
+    hasMoreHistory.value = records.length >= HISTORY_PAGE_SIZE
+
+    if (!loadMore) {
+      await scrollToBottom()
+    } else {
+      await nextTick()
+      if (messageListRef.value) {
+        const nextScrollHeight = messageListRef.value.scrollHeight
+        messageListRef.value.scrollTop = nextScrollHeight - previousScrollHeight + previousScrollTop
+      }
+    }
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '加载历史对话失败，请稍后重试')
+  } finally {
+    if (loadMore) {
+      loadingMoreHistory.value = false
+    } else {
+      loadingHistory.value = false
+    }
   }
 }
 
@@ -488,7 +577,9 @@ const initAutoMessage = async () => {
 }
 
 onMounted(async () => {
+  await loginUserStore.fetchLoginUser()
   await loadApp()
+  await loadHistory()
   await initAutoMessage()
 })
 
@@ -541,7 +632,22 @@ onBeforeUnmount(() => {
     <section class="chat-workspace">
       <aside class="chat-panel">
         <div ref="messageListRef" class="message-list">
+          <div v-if="hasMoreHistory" class="message-history-toolbar">
+            <a-button
+              type="text"
+              size="small"
+              :loading="loadingMoreHistory"
+              @click="loadHistory(true)"
+            >
+              查看更早的对话
+            </a-button>
+          </div>
           <a-spin v-if="loadingApp" />
+          <a-spin v-else-if="loadingHistory" />
+          <div v-else-if="!messages.length" class="message-empty">
+            <h3>还没有历史对话</h3>
+            <p>从下方输入你的需求后，这里会展示你和 AI 的完整生成记录。</p>
+          </div>
           <template v-for="item in messages" :key="item.id">
             <div class="message-row" :class="`message-row--${item.role}`">
               <div v-if="item.role === 'assistant'" class="message-avatar">
@@ -691,6 +797,32 @@ onBeforeUnmount(() => {
   min-height: 0;
   padding: 24px 20px;
   overflow-y: auto;
+}
+
+.message-history-toolbar {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.message-empty {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  color: #667085;
+  text-align: center;
+}
+
+.message-empty h3,
+.message-empty p {
+  margin: 0;
+}
+
+.message-empty h3 {
+  color: #1f2937;
+  font-size: 18px;
 }
 
 .message-row {

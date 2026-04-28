@@ -111,6 +111,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponsePageChatHistory = {
+    code?: number
+    data?: PageChatHistory
+    message?: string
+  }
+
   type BaseResponsePagePageQueryFeatureApplyVO = {
     code?: number
     data?: PagePageQueryFeatureApplyVO
@@ -153,6 +159,30 @@ declare namespace API {
 
   type cancelTopParams = {
     appId: number
+  }
+
+  type ChatHistory = {
+    id?: number | string
+    message?: string
+    messageType?: string
+    appId?: number | string
+    userId?: number | string
+    createTime?: string
+    updateTime?: string
+    isDelete?: number
+  }
+
+  type ChatHistoryQueryDTO = {
+    pageNum?: number
+    pageSize?: number
+    sortField?: string
+    sortOrder?: string
+    id?: number | string
+    message?: string
+    messageType?: string
+    appId?: number | string
+    userId?: number | string
+    lastCreateTime?: string
   }
 
   type chatToGenCodeParams = {
@@ -199,6 +229,15 @@ declare namespace API {
 
   type PageAppVO = {
     records?: AppVO[]
+    pageNumber?: number
+    pageSize?: number
+    totalPage?: number
+    totalRow?: number
+    optimizeCountQuery?: boolean
+  }
+
+  type PageChatHistory = {
+    records?: ChatHistory[]
     pageNumber?: number
     pageSize?: number
     totalPage?: number
