@@ -9,6 +9,7 @@ import cn.hutool.json.JSONUtil;
 import com.lk.aizerocodeplatform.constant.AppConstant;
 import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
 import com.lk.aizerocodeplatform.core.AiCodeGenFacade;
+import com.lk.aizerocodeplatform.enums.ChatMessageTypeEnum;
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
@@ -18,6 +19,7 @@ import com.lk.aizerocodeplatform.model.entity.User;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserVO;
+import com.lk.aizerocodeplatform.service.ChatHistoryService;
 import com.lk.aizerocodeplatform.service.UserService;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -56,6 +58,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private AiCodeGenFacade aiCodeGenFacade;
     @Resource
     private AppMapper appMapper;
+    @Resource
+    private ChatHistoryService chatHistoryService;
 
     @Override
     public Long addApp(AddAppDTO addAppDTO, HttpServletRequest request) {
@@ -386,6 +390,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (!userLoginVO.getId().equals(app.getUserId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
+        // 将用户消息保存到对话历史
+        chatHistoryService.addChatHistory(appId, userLoginVO.getId(), message, ChatMessageTypeEnum.User.getValue());
         // 获取代码生成类型
         String codeGenType = app.getCodeGenType();
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getByValue(codeGenType);
@@ -394,14 +400,22 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         // 调用门面类，获取与AI对话的回复内容
         Flux<String> codeContentStream = aiCodeGenFacade.generateCodeAndSaveStream(message, codeGenTypeEnum, appId);
+        // 用来汇总ai回复后的消息，然后将其保存到对话历史
+        StringBuffer aiResponse = new StringBuffer();
         // 为了防止AI回复内容中的空格返回前端后被去掉，此处对回复内容再封装一层
         return codeContentStream.map((chunk) -> {
+            // 收集ai回复的消息
+            aiResponse.append(chunk);
             // 将AI回复的流式内容先放到map中
             Map<String, String> chunkMap = Map.of("v", chunk);
             String jsonStr = JSONUtil.toJsonStr(chunkMap);
             return ServerSentEvent.<String>builder()
                     .data(jsonStr)
                     .build();
+        }).doOnComplete(() -> {
+            // 将ai消息保存到对话历史
+            String aiMessage = aiResponse.toString();
+            chatHistoryService.addChatHistory(appId, userLoginVO.getId(), aiMessage, ChatMessageTypeEnum.AI.getValue());
         }).concatWith(Mono.just(
                         // AI回复内容完毕后给前端回复一个结束事件
                         ServerSentEvent.<String>builder()
