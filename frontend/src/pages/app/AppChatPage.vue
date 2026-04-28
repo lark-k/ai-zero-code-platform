@@ -48,6 +48,10 @@ const messageListRef = ref<HTMLElement>()
 let eventSource: EventSource | null = null
 
 const appId = computed(() => String(route.params.id || ''))
+const appAuthorInitial = computed(() => {
+  const displayName = app.value?.userVo?.userName || app.value?.userVo?.userAccount || 'A'
+  return displayName.trim().charAt(0).toUpperCase() || 'A'
+})
 const appName = computed(() => app.value?.appName || '未命名应用')
 const isOwner = computed(
   () => Boolean(loginUserStore.loginUser.id) && app.value?.userId === loginUserStore.loginUser.id,
@@ -662,6 +666,14 @@ onBeforeUnmount(() => {
                 ></div>
                 <span v-if="item.streaming" class="typing-cursor"></span>
               </div>
+              <a-avatar
+                v-if="item.role === 'user'"
+                :src="app?.userVo?.userAvatar"
+                :size="32"
+                class="message-avatar message-avatar--user"
+              >
+                {{ appAuthorInitial }}
+              </a-avatar>
             </div>
           </template>
         </div>
@@ -846,6 +858,13 @@ onBeforeUnmount(() => {
 .message-avatar img {
   width: 100%;
   height: 100%;
+}
+
+.message-avatar--user {
+  color: #ffffff;
+  font-weight: 700;
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.18);
 }
 
 .message-bubble {
