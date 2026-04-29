@@ -2,11 +2,16 @@ package com.lk.aizerocodeplatform.ai;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.lk.aizerocodeplatform.ai.tools.FileWriteTool;
+import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
+import com.lk.aizerocodeplatform.exception.BusinessException;
+import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.model.entity.ChatHistory;
 import com.lk.aizerocodeplatform.service.ChatHistoryService;
 import com.mybatisflex.core.query.QueryWrapper;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
@@ -32,11 +37,17 @@ public class AiCodeGenServiceFactory {
     @Resource
     private ChatModel chatModel;
     @Resource
-    private StreamingChatModel streamingChatModel;
+    private StreamingChatModel openAiStreamingChatModel;
     @Resource
     private RedisChatMemoryStore redisChatMemoryStore;
     @Resource
     private ChatHistoryService chatHistoryService;
+    /**
+     * 注入配置的推理流式模型
+     * 注意：必须给上面的StreamingChatModel对象改个名字，不然系统不知道装配哪个bean
+     */
+    @Resource
+    private StreamingChatModel reasoningStreamChatModel;
 
     /**
      * Caffeine本质就是一个Map，只是能够更方便的进行管理里面的信息，比如设置过期时间等。
@@ -44,7 +55,7 @@ public class AiCodeGenServiceFactory {
      * 即，在一定的时间内，如果同一个appId不断使用，就可以直接从缓存中拿到AiCodeGenService服务，
      * 就不需要频繁的创建AiCodeGenService服务了！！！
      */
-    private final Cache<Long, AiCodeGenService> serviceCache = Caffeine.newBuilder()
+    private final Cache<String, AiCodeGenService> serviceCache = Caffeine.newBuilder()
             // 最大缓存1000条信息
             .maximumSize(1000)
             // 写入后30分钟过期
@@ -65,7 +76,22 @@ public class AiCodeGenServiceFactory {
      */
     public AiCodeGenService getAiCodeGenService(Long appId) {
         // 先从Caffeine本地缓存中取，如果没有取到就调用createAiCodeGenService方法创建
-        return serviceCache.get(appId, this::createAiCodeGenService);
+//        return serviceCache.get(appId, this::createAiCodeGenService);
+
+        // 为了保证跟之前的代码兼容，依旧可以使用该方法获取HTML,MULTI_FILE类型的代码生成服务AiCodeGenService对象
+        return getAiCodeGenService(appId, CodeGenTypeEnum.HTML);
+    }
+
+    /**
+     * 获取带有记忆的AiCodeGenService服务
+     *
+     * @param appId 应用id
+     * @return 带有记忆的AiCodeGenService服务
+     */
+    public AiCodeGenService getAiCodeGenService(Long appId, CodeGenTypeEnum codeGenTypeEnum) {
+        String cacheKey = this.getCaffeineCacheKey(appId, codeGenTypeEnum);
+        // 先从Caffeine本地缓存中取，如果没有取到就调用createAiCodeGenService方法创建
+        return serviceCache.get(cacheKey, key -> createAiCodeGenService(appId,codeGenTypeEnum));
     }
 
     /**
@@ -75,7 +101,7 @@ public class AiCodeGenServiceFactory {
      * @param appId 应用id
      * @return AI代码生成服务
      */
-    private AiCodeGenService createAiCodeGenService(Long appId) {
+    private AiCodeGenService createAiCodeGenService(Long appId, CodeGenTypeEnum codeGenTypeEnum) {
         // 创建对话记忆
         MessageWindowChatMemory chatMemory = MessageWindowChatMemory.builder()
                 .id(appId)
@@ -84,11 +110,24 @@ public class AiCodeGenServiceFactory {
                 .build();
         // 首次创建AiCodeGenService需要从数据库中加载历史对话到对话记忆中
         loadChatHistoryToMemory(appId, chatMemory, 20L);
-        return AiServices.builder(AiCodeGenService.class)
-                .chatModel(chatModel)
-                .streamingChatModel(streamingChatModel)
-                .chatMemory(chatMemory)
-                .build();
+        // 根据不同的代码生成类型，创建不同的AI服务
+        return switch (codeGenTypeEnum) {
+            // vue工程项目使用推理流式模型
+            case VUE_PROJECT -> AiServices.builder(AiCodeGenService.class)
+                    .streamingChatModel(reasoningStreamChatModel)
+                    .chatMemoryProvider(memoryId -> chatMemory)
+                    .tools(new FileWriteTool())
+                    .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()))
+                    .build();
+            // 普通代码文件使用普通模型
+            case MULTI_FILE, HTML -> AiServices.builder(AiCodeGenService.class)
+                    .chatModel(chatModel)
+                    .streamingChatModel(openAiStreamingChatModel)
+                    .chatMemory(chatMemory)
+                    .build();
+            default ->
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的代码生成类型：" + codeGenTypeEnum.getValue());
+        };
     }
 
     /**
@@ -134,11 +173,22 @@ public class AiCodeGenServiceFactory {
     }
 
 
+    /**
+     * 获取Caffeine本地缓存的key
+     * @param appId 应用id
+     * @param codeGenTypeEnum 代码生成类型
+     * @return Caffeine本地缓存的key
+     */
+    public String getCaffeineCacheKey(Long appId, CodeGenTypeEnum codeGenTypeEnum) {
+        return appId + "_" + codeGenTypeEnum.getValue();
+    }
+
+
     @Bean
     public AiCodeGenService aiCodeGenService() {
 //        return AiServices.builder(AiCodeGenService.class)
 //                .chatModel(chatModel)
-//                .streamingChatModel(streamingChatModel)
+//                .openAiStreamingChatModel(openAiStreamingChatModel)
 //                .build();
         // 为了保证跟之前的代码兼容，依旧提供一个默认的AI Service的bean
         return getAiCodeGenService(0L);

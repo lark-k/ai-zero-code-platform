@@ -91,6 +91,7 @@ public class AiCodeGenFacade {
         return switch (codeGenTypeEnum) {
             case HTML -> generateCodeHtmlAndSaveStream(userMessage, appId);
             case MULTI_FILE -> generateCodeMultiFileAndSaveStream(userMessage, appId);
+            case VUE_PROJECT -> generateCodeVueProjectAndSaveStream(userMessage, appId, codeGenTypeEnum);
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, errorMessage);
@@ -119,6 +120,19 @@ public class AiCodeGenFacade {
      */
     private Flux<String> generateCodeMultiFileAndSaveStream(String userMessage, Long appId) {
         Flux<String> codeStream = aiCodeGenServiceFactory.getAiCodeGenService(appId).generateMultiFileCodeStream(userMessage);
+        return processCodeStream(codeStream, CodeGenTypeEnum.MULTI_FILE, appId);
+    }
+
+    /**
+     * 保存Vue工程模式的代码文件（流式）
+     *
+     * @param userMessage     用户提示词
+     * @param appId           应用id
+     * @param codeGenTypeEnum 生成代码类型
+     * @return Ai回复
+     */
+    private Flux<String> generateCodeVueProjectAndSaveStream(String userMessage, Long appId, CodeGenTypeEnum codeGenTypeEnum) {
+        Flux<String> codeStream = aiCodeGenServiceFactory.getAiCodeGenService(appId, codeGenTypeEnum).generateVueProjectCodeStream(userMessage, appId);
         return processCodeStream(codeStream, CodeGenTypeEnum.MULTI_FILE, appId);
     }
 

@@ -2,7 +2,9 @@ package com.lk.aizerocodeplatform.ai;
 
 import com.lk.aizerocodeplatform.ai.model.HtmlCodeResult;
 import com.lk.aizerocodeplatform.ai.model.MultiFileCodeResult;
+import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.UserMessage;
 import reactor.core.publisher.Flux;
 
 /**
@@ -47,4 +49,16 @@ public interface AiCodeGenService {
      */
     @SystemMessage(fromResource = "prompts/multi_file_system_prompt.txt")
     Flux<String> generateMultiFileCodeStream(String userMessage);
+
+    /**
+     * 生成Vue工程项目代码（流式）
+     *
+     * @param userMessage 用户提示词
+     * @param appId 应用id
+     * @return ai回复内容
+     * MemoryId注解可以把参数当做工具上下文保存下来，在调用工具时可以通过ToolMemoryId获取；
+     * 当使用了MemoryId注解时，用户发送消息的参数必须使用UserMessage注解。
+     */
+    @SystemMessage(fromResource = "prompts/vue_project_file_system_prompt.txt")
+    Flux<String> generateVueProjectCodeStream(@UserMessage String userMessage, @MemoryId Long appId);
 }
