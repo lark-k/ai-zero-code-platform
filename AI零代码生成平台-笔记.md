@@ -3045,3 +3045,1491 @@ server:
 ```
 
 > 以后，登录后的session信息就会保存到redis中进行管理了。
+
+# 六、工程项目生成
+
+## 1、Vue工程项目文件生成与保存
+
+### 1. 配置推理流式模型
+
+```java
+package com.lk.aizerocodeplatform.config;
+
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/29 13:28
+ * 配置推理流式聊天模型，可以支持更复杂的任务推理
+ */
+@Configuration
+@ConfigurationProperties(prefix = "langchain4j.open-ai.chat-model")
+@Data
+public class ReasoningStreamChatModelConfig {
+    /**
+     * 加载配置文件中的api-key
+     */
+    private String apiKey;
+    /**
+     * 加载配置文件中的base-url
+     */
+    private String baseUrl;
+
+
+    @Bean
+    public StreamingChatModel reasoningStreamChatModel() {
+        Integer maxTokens = 32768;
+        String modelName = "deepseek-reasoner";
+        return OpenAiStreamingChatModel
+                .builder()
+                .apiKey(apiKey)
+                .baseUrl(baseUrl)
+                .modelName(modelName)
+                .maxTokens(maxTokens)
+                .logRequests(true)
+                .logResponses(true)
+                .build();
+    }
+}
+
+```
+
+### 2. 编写写入文件工具类
+
+```java
+package com.lk.aizerocodeplatform.ai.tools;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/29 14:29
+ */
+
+import com.lk.aizerocodeplatform.constant.AppConstant;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+
+/**
+ * 文件写入工具
+ * 支持 AI 通过工具调用的方式写入文件
+ *
+ * @author LK
+ */
+@Slf4j
+public class FileWriteTool {
+
+    @Tool("写入文件到指定路径")
+    public String writeFile(
+            @P("文件的相对路径") String relativeFilePath,
+            @P("要写入文件的内容") String content,
+            @ToolMemoryId Long appId
+            // @ToolMemoryId可以拿到AI调用时传入的参数
+    ) {
+        try {
+            Path path = Paths.get(relativeFilePath);
+            if (!path.isAbsolute()) {
+                // 相对路径处理，创建基于 appId 的项目目录
+                String projectDirName = "vue_project_" + appId;
+                Path projectRoot = Paths.get(CodeFileSaveConstant.ROOT_PATH, projectDirName);
+                path = projectRoot.resolve(relativeFilePath);
+            }
+            // 创建父目录（如果不存在）
+            Path parentDir = path.getParent();
+            if (parentDir != null) {
+                Files.createDirectories(parentDir);
+            }
+            // 写入文件内容
+            Files.write(path, content.getBytes(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+            log.info("成功写入文件: {}", path.toAbsolutePath());
+            // 注意要返回相对路径，不能让 AI 把文件绝对路径返回给用户
+            return "文件写入成功: " + relativeFilePath;
+        } catch (IOException e) {
+            String errorMessage = "文件写入失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+            log.error(errorMessage, e);
+            return errorMessage;
+        }
+    }
+}
+
+```
+
+### 3. 创建提示词
+
+```markdown
+你是一位资深的 Vue3 前端架构师，精通现代前端工程化开发、组合式 API、组件化设计和企业级应用架构。
+
+你的任务是根据用户提供的项目描述，创建一个完整的、可运行的 Vue3 工程项目
+
+## 核心技术栈
+
+- Vue 3.x（组合式 API）
+- Vite
+- Vue Router 4.x
+- Node.js 18+ 兼容
+
+## 项目结构
+
+项目根目录/
+├── index.html                 # 入口 HTML 文件
+├── package.json              # 项目依赖和脚本
+├── vite.config.js           # Vite 配置文件
+├── src/
+│   ├── main.js             # 应用入口文件
+│   ├── App.vue             # 根组件
+│   ├── router/
+│   │   └── index.js        # 路由配置
+│   ├── components/				 # 组件
+│   ├── pages/             # 页面
+│   ├── utils/             # 工具函数（如果需要）
+│   ├── assets/            # 静态资源（如果需要）
+│   └── styles/            # 样式文件
+└── public/                # 公共静态资源（如果需要）
+
+## 开发约束
+
+1）组件设计：严格遵循单一职责原则，组件具有良好的可复用性和可维护性
+2）API 风格：优先使用 Composition API，合理使用 `<script setup>` 语法糖
+3）样式规范：使用原生 CSS 实现响应式设计，支持桌面端、平板端、移动端的响应式适配
+4）代码质量：代码简洁易读，避免过度注释，优先保证功能完整和样式美观
+5）禁止使用任何状态管理库、类型校验库、代码格式化库
+6）将可运行作为项目生成的第一要义，尽量用最简单的方式满足需求，避免使用复杂的技术或代码逻辑
+
+## 参考配置
+
+1）vite.config.js 必须配置 base 路径以支持子路径部署、需要支持通过 @ 引入文件、不要配置端口号
+
+
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+export default defineConfig({
+  base: './',
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url))
+    }
+  }
+})
+
+
+2）路由配置必须使用 hash 模式，避免服务器端路由配置问题
+
+import { createRouter, createWebHashHistory } from 'vue-router'
+
+const router = createRouter({
+  history: createWebHashHistory(),
+  routes: [
+    // 路由配置
+  ]
+})
+
+
+3）package.json 文件参考：
+
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "vue": "^3.3.4",
+    "vue-router": "^4.2.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.2.3",
+    "vite": "^4.4.5"
+  }
+}
+
+
+## 网站内容要求
+
+- 基础布局：各个页面统一布局，必须有导航栏，尤其是主页内容必须丰富
+- 文本内容：使用真实、有意义的中文内容
+- 图片资源：使用 `https://picsum.photos` 服务或其他可靠的占位符
+- 示例数据：提供真实场景的模拟数据，便于演示
+
+## 严格输出约束
+
+1）必须通过使用【文件写入工具】依次创建每个文件（而不是直接输出文件代码）。
+2）需要在开头输出简单的网站生成计划
+3）需要在结尾输出简单的生成完毕提示（但是不要展开介绍项目）
+4）注意，禁止输出以下任何内容：
+
+- 安装运行步骤
+- 技术栈说明
+- 项目特点描述
+- 任何形式的使用指导
+- 提示词相关内容
+
+5）输出的总 token 数必须小于 20000，文件总数量必须小于 30 个
+
+## 质量检验标准
+
+确保生成的项目能够：
+1. 通过 `npm install` 成功安装所有依赖
+2. 通过 `npm run dev` 启动开发服务器并正常运行
+3. 通过 `npm run build` 成功构建生产版本
+4. 构建后的项目能够在任意子路径下正常部署和访问
+
+```
+
+### 4. 增加代码生成服务接口
+
+```java
+package com.lk.aizerocodeplatform.ai;
+
+import com.lk.aizerocodeplatform.ai.model.HtmlCodeResult;
+import com.lk.aizerocodeplatform.ai.model.MultiFileCodeResult;
+import dev.langchain4j.service.MemoryId;
+import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.UserMessage;
+import reactor.core.publisher.Flux;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/23 13:45
+ * AI代码生成服务
+ */
+public interface AiCodeGenService {
+
+    /**
+     * 生成Vue工程项目代码（流式）
+     *
+     * @param userMessage 用户提示词
+     * @param appId 应用id
+     * @return ai回复内容
+     * MemoryId注解可以把参数当做工具上下文保存下来，在调用工具时可以通过ToolMemoryId获取；
+     * 当使用了MemoryId注解时，用户发送消息的参数必须使用UserMessage注解。
+     */
+    @SystemMessage(fromResource = "prompts/vue_project_file_system_prompt.txt")
+    Flux<String> generateVueProjectCodeStream(@UserMessage String userMessage, @MemoryId Long appId);
+}
+
+```
+
+### 5. 修改代码生成服务接口工厂
+
+```java
+package com.lk.aizerocodeplatform.ai;
+
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.lk.aizerocodeplatform.ai.tools.FileWriteTool;
+import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
+import com.lk.aizerocodeplatform.exception.BusinessException;
+import com.lk.aizerocodeplatform.exception.ErrorCode;
+import com.lk.aizerocodeplatform.model.entity.ChatHistory;
+import com.lk.aizerocodeplatform.service.ChatHistoryService;
+import com.mybatisflex.core.query.QueryWrapper;
+import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.service.AiServices;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.time.Duration;
+import java.util.List;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/23 13:50
+ * 创建ai代码生成服务工厂，用于初始化服务
+ */
+@Slf4j
+@Configuration
+public class AiCodeGenServiceFactory {
+    @Resource
+    private ChatModel chatModel;
+    @Resource
+    private StreamingChatModel openAiStreamingChatModel;
+    @Resource
+    private RedisChatMemoryStore redisChatMemoryStore;
+    @Resource
+    private ChatHistoryService chatHistoryService;
+    /**
+     * 注入配置的推理流式模型
+     * 注意：必须给上面的StreamingChatModel对象改个名字，不然系统不知道装配哪个bean
+     */
+    @Resource
+    private StreamingChatModel reasoningStreamChatModel;
+
+    /**
+     * Caffeine本质就是一个Map，只是能够更方便的进行管理里面的信息，比如设置过期时间等。
+     * 为了防止同一个appId会不断创建新的AiCodeGenService服务，这里引入Caffeine本地缓存。
+     * 即，在一定的时间内，如果同一个appId不断使用，就可以直接从缓存中拿到AiCodeGenService服务，
+     * 就不需要频繁的创建AiCodeGenService服务了！！！
+     */
+    private final Cache<String, AiCodeGenService> serviceCache = Caffeine.newBuilder()
+            // 最大缓存1000条信息
+            .maximumSize(1000)
+            // 写入后30分钟过期
+            .expireAfterWrite(Duration.ofMinutes(30))
+            // 访问后10分钟过期
+            .expireAfterAccess(Duration.ofMinutes(10))
+            .removalListener((key, value, cause) -> {
+                log.info("Ai服务实例被移除，appId:{}，原因:{}", key, cause);
+            })
+            .build();
+
+
+    /**
+     * 获取带有记忆的AiCodeGenService服务
+     *
+     * @param appId 应用id
+     * @return 带有记忆的AiCodeGenService服务
+     */
+    public AiCodeGenService getAiCodeGenService(Long appId) {
+        // 先从Caffeine本地缓存中取，如果没有取到就调用createAiCodeGenService方法创建
+//        return serviceCache.get(appId, this::createAiCodeGenService);
+
+        // 为了保证跟之前的代码兼容，依旧可以使用该方法获取HTML,MULTI_FILE类型的代码生成服务AiCodeGenService对象
+        return getAiCodeGenService(appId, CodeGenTypeEnum.HTML);
+    }
+
+    /**
+     * 获取带有记忆的AiCodeGenService服务
+     *
+     * @param appId 应用id
+     * @return 带有记忆的AiCodeGenService服务
+     */
+    public AiCodeGenService getAiCodeGenService(Long appId, CodeGenTypeEnum codeGenTypeEnum) {
+        String cacheKey = this.getCaffeineCacheKey(appId, codeGenTypeEnum);
+        // 先从Caffeine本地缓存中取，如果没有取到就调用createAiCodeGenService方法创建
+        return serviceCache.get(cacheKey, key -> createAiCodeGenService(appId,codeGenTypeEnum));
+    }
+
+    /**
+     * 通过appId创建AiCodeGenService，
+     * 用于隔离不同的对话记忆
+     *
+     * @param appId 应用id
+     * @return AI代码生成服务
+     */
+    private AiCodeGenService createAiCodeGenService(Long appId, CodeGenTypeEnum codeGenTypeEnum) {
+        // 创建对话记忆
+        MessageWindowChatMemory chatMemory = MessageWindowChatMemory.builder()
+                .id(appId)
+                .chatMemoryStore(redisChatMemoryStore)
+                .maxMessages(20)
+                .build();
+        // 首次创建AiCodeGenService需要从数据库中加载历史对话到对话记忆中
+        loadChatHistoryToMemory(appId, chatMemory, 20L);
+        // 根据不同的代码生成类型，创建不同的AI服务
+        return switch (codeGenTypeEnum) {
+            // vue工程项目使用推理流式模型
+            case VUE_PROJECT -> AiServices.builder(AiCodeGenService.class)
+                    .streamingChatModel(reasoningStreamChatModel)
+                    .chatMemoryProvider(memoryId -> chatMemory)
+                    .tools(new FileWriteTool())
+                    .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()))
+                    .build();
+            // 普通代码文件使用普通模型
+            case MULTI_FILE, HTML -> AiServices.builder(AiCodeGenService.class)
+                    .chatModel(chatModel)
+                    .streamingChatModel(openAiStreamingChatModel)
+                    .chatMemory(chatMemory)
+                    .build();
+            default ->
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的代码生成类型：" + codeGenTypeEnum.getValue());
+        };
+    }
+
+
+    /**
+     * 获取Caffeine本地缓存的key
+     * @param appId 应用id
+     * @param codeGenTypeEnum 代码生成类型
+     * @return Caffeine本地缓存的key
+     */
+    public String getCaffeineCacheKey(Long appId, CodeGenTypeEnum codeGenTypeEnum) {
+        return appId + "_" + codeGenTypeEnum.getValue();
+    }
+
+
+}
+
+```
+
+### 6. 修改门面类（调用AI）
+
+```java
+package com.lk.aizerocodeplatform.core;
+
+import com.lk.aizerocodeplatform.ai.AiCodeGenService;
+import com.lk.aizerocodeplatform.ai.AiCodeGenServiceFactory;
+import com.lk.aizerocodeplatform.ai.model.HtmlCodeResult;
+import com.lk.aizerocodeplatform.ai.model.MultiFileCodeResult;
+import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
+import com.lk.aizerocodeplatform.exception.BusinessException;
+import com.lk.aizerocodeplatform.exception.ErrorCode;
+import com.lk.aizerocodeplatform.exception.ThrowUtils;
+import com.lk.aizerocodeplatform.parser.CodeParseExecutor;
+import com.lk.aizerocodeplatform.saver.CodeFileSaveExecutor;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+
+import java.io.File;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/23 17:08
+ * AI代码生成门面类（采用门面设计模式）
+ */
+@Service
+@Slf4j
+public class AiCodeGenFacade {
+//    @Resource
+//    private AiCodeGenService aiCodeGenService;
+
+    @Resource
+    private AiCodeGenServiceFactory aiCodeGenServiceFactory;
+    
+    /**
+     * 生成代码并保存（流式）
+     *
+     * @param userMessage     用户提示词
+     * @param codeGenTypeEnum 代码生成类型
+     * @param appId           应用id
+     * @return 文件
+     */
+    public Flux<String> generateCodeAndSaveStream(String userMessage, CodeGenTypeEnum codeGenTypeEnum, Long appId) {
+        ThrowUtils.throwIf(codeGenTypeEnum == null, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(userMessage == null, ErrorCode.PARAMS_ERROR);
+        return switch (codeGenTypeEnum) {
+            case HTML -> generateCodeHtmlAndSaveStream(userMessage, appId);
+            case MULTI_FILE -> generateCodeMultiFileAndSaveStream(userMessage, appId);
+            case VUE_PROJECT -> generateCodeVueProjectAndSaveStream(userMessage, appId, codeGenTypeEnum);
+            default -> {
+                String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, errorMessage);
+            }
+        };
+    }
+
+    /**
+     * 保存Vue工程模式的代码文件（流式）
+     *
+     * @param userMessage     用户提示词
+     * @param appId           应用id
+     * @param codeGenTypeEnum 生成代码类型
+     * @return Ai回复
+     */
+    private Flux<String> generateCodeVueProjectAndSaveStream(String userMessage, Long appId, CodeGenTypeEnum codeGenTypeEnum) {
+        Flux<String> codeStream = aiCodeGenServiceFactory.getAiCodeGenService(appId, codeGenTypeEnum).generateVueProjectCodeStream(userMessage, appId);
+        return processCodeStream(codeStream, CodeGenTypeEnum.MULTI_FILE, appId);
+    }
+
+    /**
+     * 通用代码流处理方法
+     *
+     * @param codeStream      代码流
+     * @param codeGenTypeEnum 生成代码方式
+     * @param appId           应用id
+     * @return 流式响应
+     */
+    private Flux<String> processCodeStream(Flux<String> codeStream, CodeGenTypeEnum codeGenTypeEnum, Long appId) {
+        StringBuilder stringBuilder = new StringBuilder();
+        return codeStream
+                .doOnNext(stringBuilder::append)
+                .doOnComplete(() -> {
+                    try {
+                        String completeCode = stringBuilder.toString();
+                        // 调用统一的解析器执行器，根据生成代码的方式决定调用哪一个解析器
+                        Object commonParseResult = CodeParseExecutor.executeParser(completeCode, codeGenTypeEnum);
+                        // 调用统一的代码文件保存执行器，根据生成的代码方式决定调用哪一个文件保存模板
+                        File dir = CodeFileSaveExecutor.executeCodeFileSave(commonParseResult, codeGenTypeEnum, appId);
+                        log.info("文件保存成功，路径为：{}", dir.getAbsolutePath());
+                    } catch (Exception e) {
+                        log.error("保存失败：{}", e.getMessage());
+                    }
+                });
+    }
+}
+```
+
+## 2、工具调用流式输出
+
+### 第一步：引入源码包
+
+由于langchain4j1.1.0版本不支持工具调用流式输出，所以此处采用方案为：引入一个langchain4j源码包，覆盖原来不支持工具调用流式输出的包，放在`src/main/java`目录下。
+
+https://yuyuanweb.yuque.com/org-wiki-yuyuanweb-zvq1bg/webrf4/kquwk9bzruniczdg?singleDoc# ：密码tpkb
+
+### 第二步：统一消息格式
+
+```java
+package com.lk.aizerocodeplatform.ai.model.message;
+
+import lombok.Getter;
+
+/**
+ * 流式消息类型枚举
+ *
+ * @author LK
+ */
+@Getter
+public enum StreamMessageTypeEnum {
+
+    AI_RESPONSE("ai_response", "AI响应"),
+    TOOL_REQUEST("tool_request", "工具请求"),
+    TOOL_EXECUTED("tool_executed", "工具执行结果");
+
+    private final String value;
+    private final String text;
+
+    StreamMessageTypeEnum(String value, String text) {
+        this.value = value;
+        this.text = text;
+    }
+
+    /**
+     * 根据值获取枚举
+     */
+    public static StreamMessageTypeEnum getEnumByValue(String value) {
+        for (StreamMessageTypeEnum typeEnum : values()) {
+            if (typeEnum.getValue().equals(value)) {
+                return typeEnum;
+            }
+        }
+        return null;
+    }
+}
+
+
+```
+
+```java
+package com.lk.aizerocodeplatform.ai.model.message;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/30 11:22
+ * 工具调用流式输出信息的基类
+ */
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+public class StreamMessage {
+    /**
+     * 消息类型
+     */
+    private String type;
+}
+
+```
+
+```java
+package com.lk.aizerocodeplatform.ai.model.message;
+
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/30 11:23
+ * ai回复消息包装类
+ */
+@EqualsAndHashCode(callSuper = true)
+@NoArgsConstructor
+@Data
+public class AiResponseMessage extends StreamMessage {
+    /**
+     * ai回复的内容
+     */
+    private String data;
+
+    public AiResponseMessage(String data) {
+        super(StreamMessageTypeEnum.AI_RESPONSE.getValue());
+        this.data = data;
+    }
+}
+
+```
+
+```java
+package com.lk.aizerocodeplatform.ai.model.message;
+
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/30 11:31
+ * 工具调用请求信息包装类
+ */
+@NoArgsConstructor
+@EqualsAndHashCode(callSuper = true)
+@Data
+public class ToolCallingQuestMessage extends StreamMessage {
+    /**
+     * 工具id
+     */
+    private String id;
+    /**
+     * 工具名称
+     */
+    private String name;
+    /**
+     * 工具参数
+     */
+    private String arguments;
+
+    public ToolCallingQuestMessage(ToolExecutionRequest toolExecutionRequest) {
+        super(StreamMessageTypeEnum.TOOL_REQUEST.getValue());
+        this.id = toolExecutionRequest.id();
+        this.name = toolExecutionRequest.name();
+        this.arguments = toolExecutionRequest.arguments();
+    }
+}
+
+```
+
+```java
+package com.lk.aizerocodeplatform.ai.model.message;
+
+import dev.langchain4j.service.tool.ToolExecution;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/30 11:40
+ * 工具调用结果消息包装类
+ */
+@EqualsAndHashCode(callSuper = true)
+@NoArgsConstructor
+@Data
+public class ToolCallingResultMessage extends StreamMessage {
+    /**
+     * 工具id
+     */
+    private String id;
+    /**
+     * 工具名称
+     */
+    private String name;
+    /**
+     * 工具参数
+     */
+    private String arguments;
+    /**
+     * 工具执行结果
+     */
+    private String result;
+
+    public ToolCallingResultMessage(ToolExecution toolExecution) {
+        super(StreamMessageTypeEnum.TOOL_EXECUTED.getValue());
+        this.id = toolExecution.request().id();
+        this.name = toolExecution.request().name();
+        this.arguments = toolExecution.request().arguments();
+        this.result = toolExecution.result();
+    }
+}
+
+```
+
+### 第三步：修改AI服务接口
+
+```java
+package com.lk.aizerocodeplatform.ai;
+
+import com.lk.aizerocodeplatform.ai.model.HtmlCodeResult;
+import com.lk.aizerocodeplatform.ai.model.MultiFileCodeResult;
+import dev.langchain4j.service.MemoryId;
+import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.UserMessage;
+import reactor.core.publisher.Flux;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/23 13:45
+ * AI代码生成服务
+ */
+public interface AiCodeGenService {
+  
+    /**
+     * 生成Vue工程项目代码（流式）
+     *
+     * @param userMessage 用户提示词
+     * @param appId 应用id
+     * @return ai回复内容
+     * MemoryId注解可以把参数当做工具上下文保存下来，在调用工具时可以通过ToolMemoryId获取；
+     * 当使用了MemoryId注解时，用户发送消息的参数必须使用UserMessage注解。
+     */
+    @SystemMessage(fromResource = "prompts/vue_project_file_system_prompt.txt")
+    TokenStream generateVueProjectCodeStream(@UserMessage String userMessage, @MemoryId Long appId);
+}
+
+```
+
+### 第四步：修改门面类（调用ai）
+
+由于AI服务接口方法修改为了TokenStream类型，为了兼容之前返回类型为Flux<String>类型，新增一个适配器方法，将TokenStream转换为Flux<String>。
+
+```java
+/**
+     * 将tokenStream转换为Flux，本质是一个适配器，通过转换后原来方法返回值为Flux的方法仍然可用
+     */
+    private Flux<String> processTokenStream(TokenStream tokenStream) {
+        return Flux.create(sink -> {
+            // 监听tokenStream
+            tokenStream.onPartialResponse((String partialResponse) -> {
+                        // 将AI回复的消息封装为AI回复消息包装类
+                        AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
+                        // 将AI回复消息包装类转换为json字符串
+                        sink.next(JSONUtil.toJsonStr(aiResponseMessage));
+                    })
+                    .onPartialToolExecutionRequest((index, toolExecutionRequest) -> {
+                        // 将工具调用请求信息封装为包装类
+                        ToolCallingQuestMessage toolCallingQuestMessage = new ToolCallingQuestMessage(toolExecutionRequest);
+                        // 将工具调用请求信息包装类转换为json字符串
+                        sink.next(JSONUtil.toJsonStr(toolCallingQuestMessage));
+                    })
+                    .onToolExecuted((ToolExecution toolExecution) -> {
+                        // 将工具调用结果信息封装为包装类
+                        ToolCallingResultMessage toolCallingResultMessage = new ToolCallingResultMessage(toolExecution);
+                        // 将工具调用结果信息包装类转换为json字符串
+                        sink.next(JSONUtil.toJsonStr(toolCallingResultMessage));
+                    })
+                    .onCompleteResponse((ChatResponse chatResponse) -> {
+                        sink.complete();
+                    })
+                    .onError((Throwable error) -> {
+                        error.printStackTrace();
+                        sink.error(error);
+                    })
+                    .start();
+        });
+    }
+```
+
+```java
+ /**
+     * 保存Vue工程模式的代码文件（流式）
+     *
+     * @param userMessage     用户提示词
+     * @param appId           应用id
+     * @param codeGenTypeEnum 生成代码类型
+     * @return Ai回复
+     */
+    private Flux<String> generateCodeVueProjectAndSaveStream(String userMessage, Long appId, CodeGenTypeEnum codeGenTypeEnum) {
+        return processTokenStream(aiCodeGenServiceFactory.getAiCodeGenService(appId, codeGenTypeEnum).generateVueProjectCodeStream(userMessage, appId));
+    }
+```
+
+### 第五步：新增消息流处理器
+
+根据代码生成类型，选择不同的消息流处理器，对AI生成的消息流进行处理后返回给前端。
+
+```java
+package com.lk.aizerocodeplatform.core.handler;
+
+import com.lk.aizerocodeplatform.enums.ChatMessageTypeEnum;
+import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import com.lk.aizerocodeplatform.service.ChatHistoryService;
+import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Flux;
+
+/**
+ * 简单文本流处理器
+ * 处理 HTML 和 MULTI_FILE 类型的流式响应
+ *
+ * @author LK
+ */
+@Slf4j
+public class SimpleTextStreamHandler {
+
+    /**
+     * 处理传统流（HTML, MULTI_FILE）
+     * 直接收集完整的文本响应
+     *
+     * @param originFlux         原始流
+     * @param chatHistoryService 聊天历史服务
+     * @param appId              应用ID
+     * @param userLoginVO        登录用户
+     * @return 处理后的流
+     */
+    public Flux<String> handle(Flux<String> originFlux,
+                               ChatHistoryService chatHistoryService,
+                               long appId, UserLoginVO userLoginVO) {
+        StringBuilder aiResponseBuilder = new StringBuilder();
+        return originFlux
+                .map(chunk -> {
+                    // 收集AI响应内容
+                    aiResponseBuilder.append(chunk);
+                    return chunk;
+                })
+                .doOnComplete(() -> {
+                    // 流式响应完成后，添加AI消息到对话历史
+                    String aiResponse = aiResponseBuilder.toString();
+                    chatHistoryService.addChatHistory(appId, userLoginVO.getId(), aiResponse, ChatMessageTypeEnum.AI.getValue());
+                })
+                .doOnError(error -> {
+                    // 如果AI回复失败，也要记录错误消息
+                    String errorMessage = "AI回复失败: " + error.getMessage();
+                    chatHistoryService.addChatHistory(appId, userLoginVO.getId(), errorMessage, ChatMessageTypeEnum.AI.getValue());
+                });
+    }
+}
+
+
+```
+
+~~~java
+package com.lk.aizerocodeplatform.core.handler;
+
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+import com.lk.aizerocodeplatform.ai.model.message.AiResponseMessage;
+import com.lk.aizerocodeplatform.ai.model.message.StreamMessage;
+import com.lk.aizerocodeplatform.ai.model.message.StreamMessageTypeEnum;
+import com.lk.aizerocodeplatform.ai.model.message.ToolCallingResultMessage;
+import com.lk.aizerocodeplatform.enums.ChatMessageTypeEnum;
+import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import com.lk.aizerocodeplatform.service.ChatHistoryService;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
+
+import java.util.HashSet;
+import java.util.Set;
+
+/**
+ * JSON 消息流处理器
+ * 处理 VUE_PROJECT 类型的复杂流式响应，包含工具调用信息
+ *
+ * @author LK
+ */
+@Slf4j
+@Component
+public class JsonMessageStreamHandler {
+
+    /**
+     * 处理 TokenStream（VUE_PROJECT）
+     * 解析 JSON 消息并重组为完整的响应格式
+     *
+     * @param originFlux         原始流
+     * @param chatHistoryService 聊天历史服务
+     * @param appId              应用ID
+     * @param userLoginVO        登录用户
+     * @return 处理后的流
+     */
+    public Flux<String> handle(Flux<String> originFlux,
+                               ChatHistoryService chatHistoryService,
+                               long appId, UserLoginVO userLoginVO) {
+        // 收集数据用于生成后端记忆格式
+        StringBuilder chatHistoryStringBuilder = new StringBuilder();
+        // 用于跟踪已经见过的工具ID，判断是否是第一次调用
+        Set<String> seenToolIds = new HashSet<>();
+        return originFlux
+                .map(chunk -> {
+                    // 解析每个 JSON 消息块
+                    return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, seenToolIds);
+                })
+                // 过滤空字串
+                .filter(StrUtil::isNotEmpty)
+                .doOnComplete(() -> {
+                    // 流式响应完成后，添加 AI 消息到对话历史
+                    String aiResponse = chatHistoryStringBuilder.toString();
+                    chatHistoryService.addChatHistory(appId, userLoginVO.getId(), aiResponse, ChatMessageTypeEnum.AI.getValue());
+                })
+                .doOnError(error -> {
+                    // 如果AI回复失败，也要记录错误消息
+                    String errorMessage = "AI回复失败: " + error.getMessage();
+                    chatHistoryService.addChatHistory(appId, userLoginVO.getId(), errorMessage, ChatMessageTypeEnum.AI.getValue());
+                });
+    }
+
+    /**
+     * 解析并收集 TokenStream 数据
+     */
+    private String handleJsonMessageChunk(String chunk, StringBuilder chatHistoryStringBuilder, Set<String> seenToolIds) {
+        // 解析 JSON
+        StreamMessage streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
+        StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(streamMessage.getType());
+        switch (typeEnum) {
+            case AI_RESPONSE -> {
+                AiResponseMessage aiMessage = JSONUtil.toBean(chunk, AiResponseMessage.class);
+                String data = aiMessage.getData();
+                // 直接拼接响应
+                chatHistoryStringBuilder.append(data);
+                return data;
+            }
+            case TOOL_REQUEST -> {
+                ToolCallingResultMessage toolRequestMessage = JSONUtil.toBean(chunk, ToolCallingResultMessage.class);
+                String toolId = toolRequestMessage.getId();
+                // 检查是否是第一次看到这个工具 ID
+                if (toolId != null && !seenToolIds.contains(toolId)) {
+                    // 第一次调用这个工具，记录 ID 并完整返回工具信息
+                    seenToolIds.add(toolId);
+                    return "\n\n[🔧选择工具] 写入文件\n\n";
+                } else {
+                    // 不是第一次调用这个工具，直接返回空
+                    return "";
+                }
+            }
+            case TOOL_EXECUTED -> {
+                ToolCallingResultMessage toolExecutedMessage = JSONUtil.toBean(chunk, ToolCallingResultMessage.class);
+                JSONObject jsonObject = JSONUtil.parseObj(toolExecutedMessage.getArguments());
+                String relativeFilePath = jsonObject.getStr("relativeFilePath");
+                String suffix = FileUtil.getSuffix(relativeFilePath);
+                String content = jsonObject.getStr("content");
+                String result = String.format("""
+                        [工具调用] 写入文件 %s
+                        ```%s
+                        %s
+                        ```
+                        """, relativeFilePath, suffix, content);
+                // 输出前端和要持久化的内容
+                String output = String.format("\n\n%s\n\n", result);
+                chatHistoryStringBuilder.append(output);
+                return output;
+            }
+            default -> {
+                log.error("不支持的消息类型: {}", typeEnum);
+                return "";
+            }
+        }
+    }
+}
+
+
+~~~
+
+新增一个消息流处理器的执行器，根据代码生成类型决定调用哪一个消息流处理器：
+
+```java
+package com.lk.aizerocodeplatform.core.handler;
+
+import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
+import com.lk.aizerocodeplatform.model.entity.User;
+import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import com.lk.aizerocodeplatform.service.ChatHistoryService;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
+
+/**
+ * 流处理器执行器
+ * 根据代码生成类型创建合适的流处理器：
+ * 1. 传统的 Flux<String> 流（HTML、MULTI_FILE） -> SimpleTextStreamHandler
+ * 2. TokenStream 格式的复杂流（VUE_PROJECT） -> JsonMessageStreamHandler
+ *
+ * @author LK
+ */
+@Slf4j
+@Component
+public class StreamHandlerExecutor {
+
+    @Resource
+    private JsonMessageStreamHandler jsonMessageStreamHandler;
+
+    /**
+     * 创建流处理器并处理聊天历史记录
+     *
+     * @param originFlux         原始流
+     * @param chatHistoryService 聊天历史服务
+     * @param appId              应用ID
+     * @param userLoginVO        登录用户
+     * @param codeGenType        代码生成类型
+     * @return 处理后的流
+     */
+    public Flux<String> doExecute(Flux<String> originFlux,
+                                  ChatHistoryService chatHistoryService,
+                                  long appId, UserLoginVO userLoginVO, CodeGenTypeEnum codeGenType) {
+        return switch (codeGenType) {
+            // 使用注入的组件实例
+            case VUE_PROJECT -> jsonMessageStreamHandler.handle(originFlux, chatHistoryService, appId, userLoginVO);
+            // 简单文本处理器不需要依赖注入
+            case HTML, MULTI_FILE ->
+                    new SimpleTextStreamHandler().handle(originFlux, chatHistoryService, appId, userLoginVO);
+        };
+    }
+}
+
+```
+
+### 第六步：修改appServiceImpl
+
+```java
+@Override
+    public Flux<String> chatToGenCode(String message, Long appId, UserLoginVO userLoginVO) {
+        // 判断参数是否合法
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(userLoginVO == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 判断应用是否存在
+        App app = getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        // 每个用户只能与自己的应用对话
+        if (!userLoginVO.getId().equals(app.getUserId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        // 将用户消息保存到对话历史
+        chatHistoryService.addChatHistory(appId, userLoginVO.getId(), message, ChatMessageTypeEnum.User.getValue());
+        // 获取代码生成类型
+        String codeGenType = app.getCodeGenType();
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getByValue(codeGenType);
+        if (codeGenTypeEnum == null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "代码生成类型错误");
+        }
+        // 调用门面类，获取与AI对话的回复内容
+        Flux<String> codeContentStream = aiCodeGenFacade.generateCodeAndSaveStream(message, codeGenTypeEnum, appId);
+        return streamHandlerExecutor.doExecute(codeContentStream, chatHistoryService, appId, userLoginVO, codeGenTypeEnum);
+    }
+```
+
+### 第七步：修改appController
+
+```java
+@Operation(summary = "用户对话生成应用")
+@GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public Flux<String> chatToGenCode(@RequestParam String message,
+                                                   @RequestParam Long appId,
+                                                   HttpServletRequest request) {
+    UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+    return appService.chatToGenCode(message, appId, currentUserLoginVo);
+}
+```
+
+## 3、工程项目构建浏览
+
+### 第一步：创建构建类
+
+```java
+package com.lk.aizerocodeplatform.core.builder;
+
+import cn.hutool.core.util.RuntimeUtil;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.File;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/30 17:54
+ * Vue项目构建
+ */
+@Slf4j
+@Component
+public class VueProjectBuilderd {
+    /**
+     * 执行命令的通用方法
+     *
+     * @param workingDir     工作目录
+     * @param command        命令字符串
+     * @param timeoutSeconds 超时时间（秒）
+     * @return 是否执行成功
+     */
+    private boolean executeCommand(File workingDir, String command, int timeoutSeconds) {
+        try {
+            log.info("在目录 {} 中执行命令: {}", workingDir.getAbsolutePath(), command);
+            Process process = RuntimeUtil.exec(
+                    null,
+                    workingDir,
+                    // 命令分割为数组
+                    command.split("\\s+")
+            );
+            // 等待进程完成，设置超时
+            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+            if (!finished) {
+                log.error("命令执行超时（{}秒），强制终止进程", timeoutSeconds);
+                process.destroyForcibly();
+                return false;
+            }
+            int exitCode = process.exitValue();
+            if (exitCode == 0) {
+                log.info("命令执行成功: {}", command);
+                return true;
+            } else {
+                log.error("命令执行失败，退出码: {}", exitCode);
+                return false;
+            }
+        } catch (Exception e) {
+            log.error("执行命令失败: {}, 错误信息: {}", command, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 判断是否为windos系统
+     */
+    private boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("windows");
+    }
+
+    /**
+     * 构建命令
+     *
+     * @param baseCommand 输入的命令
+     * @return 处理后的命令
+     */
+    private String buildCommand(String baseCommand) {
+        if (isWindows()) {
+            return baseCommand + ".cmd";
+        }
+        return baseCommand;
+    }
+
+    /**
+     * 执行 npm install 命令
+     */
+    private boolean executeNpmInstall(File projectDir) {
+        log.info("执行 npm install...");
+        String command = String.format("%s install", buildCommand("npm"));
+        // 5分钟超时
+        return executeCommand(projectDir, command, 300);
+    }
+
+    /**
+     * 执行 npm run build 命令
+     */
+    private boolean executeNpmBuild(File projectDir) {
+        log.info("执行 npm run build...");
+        String command = String.format("%s run build", buildCommand("npm"));
+        // 3分钟超时
+        return executeCommand(projectDir, command, 180);
+    }
+
+
+    /**
+     * 构建 Vue 项目
+     *
+     * @param projectPath 项目根目录路径
+     * @return 是否构建成功
+     */
+    public boolean buildProject(String projectPath) {
+        File projectDir = new File(projectPath);
+        if (!projectDir.exists() || !projectDir.isDirectory()) {
+            log.error("项目目录不存在: {}", projectPath);
+            return false;
+        }
+        // 检查 package.json 是否存在
+        File packageJson = new File(projectDir, "package.json");
+        if (!packageJson.exists()) {
+            log.error("package.json 文件不存在: {}", packageJson.getAbsolutePath());
+            return false;
+        }
+        log.info("开始构建 Vue 项目: {}", projectPath);
+        // 执行 npm install
+        if (!executeNpmInstall(projectDir)) {
+            log.error("npm install 执行失败");
+            return false;
+        }
+        // 执行 npm run build
+        if (!executeNpmBuild(projectDir)) {
+            log.error("npm run build 执行失败");
+            return false;
+        }
+        // 验证 dist 目录是否生成
+        File distDir = new File(projectDir, "dist");
+        if (!distDir.exists()) {
+            log.error("构建完成但 dist 目录未生成: {}", distDir.getAbsolutePath());
+            return false;
+        }
+        log.info("Vue 项目构建成功，dist 目录: {}", distDir.getAbsolutePath());
+        return true;
+    }
+
+    /**
+     * 异步构建项目（不阻塞主流程）
+     *
+     * @param projectPath 项目路径
+     */
+    public void buildProjectAsync(String projectPath) {
+        // 在单独的线程中执行构建，避免阻塞主流程
+        Thread.ofVirtual().name("vue-builder-" + System.currentTimeMillis()).start(() -> {
+            try {
+                buildProject(projectPath);
+            } catch (Exception e) {
+                log.error("异步构建 Vue 项目时发生异常: {}", e.getMessage(), e);
+            }
+        });
+    }
+}
+
+```
+
+### 第二步：使用构建类
+
+在消息流处理器中使用：ai回复消息完后执行
+
+```java
+/**
+     * 处理 TokenStream（VUE_PROJECT）
+     * 解析 JSON 消息并重组为完整的响应格式
+     *
+     * @param originFlux         原始流
+     * @param chatHistoryService 聊天历史服务
+     * @param appId              应用ID
+     * @param userLoginVO        登录用户
+     * @return 处理后的流
+     */
+    public Flux<String> handle(Flux<String> originFlux,
+                               ChatHistoryService chatHistoryService,
+                               long appId, UserLoginVO userLoginVO) {
+        // 收集数据用于生成后端记忆格式
+        StringBuilder chatHistoryStringBuilder = new StringBuilder();
+        // 用于跟踪已经见过的工具ID，判断是否是第一次调用
+        Set<String> seenToolIds = new HashSet<>();
+        return originFlux
+                .map(chunk -> {
+                    // 解析每个 JSON 消息块
+                    return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, seenToolIds);
+                })
+                // 过滤空字串
+                .filter(StrUtil::isNotEmpty)
+                .doOnComplete(() -> {
+                    // 流式响应完成后，添加 AI 消息到对话历史
+                    String aiResponse = chatHistoryStringBuilder.toString();
+                    chatHistoryService.addChatHistory(appId, userLoginVO.getId(), aiResponse, ChatMessageTypeEnum.AI.getValue());
+                    // 打包构建Vue项目
+                    String projectPath = CodeFileSaveConstant.ROOT_PATH + File.separator + "vue_project_" + appId;
+                    vueProjectBuilderd.buildProjectAsync(projectPath);
+                })
+                .doOnError(error -> {
+                    // 如果AI回复失败，也要记录错误消息
+                    String errorMessage = "AI回复失败: " + error.getMessage();
+                    chatHistoryService.addChatHistory(appId, userLoginVO.getId(), errorMessage, ChatMessageTypeEnum.AI.getValue());
+                });
+    }
+```
+
+### 第三步：修改静态资源接口逻辑
+
+add：vue项目构建后预览
+
+```java
+package com.lk.aizerocodeplatform.controller;
+
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import com.lk.aizerocodeplatform.exception.ErrorCode;
+import com.lk.aizerocodeplatform.exception.ThrowUtils;
+import com.lk.aizerocodeplatform.model.entity.App;
+import com.lk.aizerocodeplatform.service.AppService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.HandlerMapping;
+
+import java.io.File;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/25 21:23
+ * 代码生成后预览网站的接口
+ */
+@Tag(name = "网站预览相关接口")
+@RestController
+@RequestMapping("/static")
+public class StaticResourceController {
+    @jakarta.annotation.Resource
+    private AppService appService;
+
+
+    /**
+     * 提供静态资源访问，支持目录重定向
+     * 访问格式：http://localhost:8123/api/static/{appId}[/{fileName}]
+     */
+    @GetMapping("/{appId}/**")
+    @Operation(summary = "预览代码生成后的网站")
+    public ResponseEntity<Resource> serveStaticResource(
+            @PathVariable Long appId,
+            HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        // 拿到代码生成类型
+        String codeGenType = app.getCodeGenType();
+        try {
+            // 获取资源路径
+            String resourcePath = (String) request.getAttribute(HandlerMapping.PATH_WITHIN_HANDLER_MAPPING_ATTRIBUTE);
+            resourcePath = resourcePath.substring(("/static/" + appId).length());
+            // 如果是目录访问（不带斜杠），重定向到带斜杠的URL
+            if (resourcePath.isEmpty()) {
+                HttpHeaders headers = new HttpHeaders();
+                headers.add("Location", request.getRequestURI() + "/");
+                return new ResponseEntity<>(headers, HttpStatus.MOVED_PERMANENTLY);
+            }
+            // 默认返回 index.html
+            if (resourcePath.equals("/")) {
+                resourcePath = "/index.html";
+            }
+            // 构建文件路径
+            String baseDir;
+            if ("vue_project".equals(codeGenType)) {
+                // Vue 项目真实目录：vue_project_{appId}/dist
+                baseDir = CodeFileSaveConstant.ROOT_PATH
+                        + File.separator
+                        + "vue_project_" + appId
+                        + File.separator
+                        + "dist";
+            } else {
+                // 其他类型仍然沿用旧规则：{appId}_{codeGenType}
+                baseDir = CodeFileSaveConstant.ROOT_PATH
+                        + File.separator
+                        + appId + "_" + codeGenType;
+            }
+            String filePath = baseDir + resourcePath;
+            File file = new File(filePath);
+            // 检查文件是否存在
+            if (!file.exists()) {
+                return ResponseEntity.notFound().build();
+            }
+            // 返回文件资源
+            Resource resource = new FileSystemResource(file);
+            return ResponseEntity.ok()
+                    .header("Content-Type", getContentTypeWithCharset(filePath))
+                    .body(resource);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * 根据文件扩展名返回带字符编码的 Content-Type
+     */
+    private String getContentTypeWithCharset(String filePath) {
+        if (filePath.endsWith(".html")) {
+            return "text/html; charset=UTF-8";
+        }
+        if (filePath.endsWith(".css")) {
+            return "text/css; charset=UTF-8";
+        }
+        if (filePath.endsWith(".js")) {
+            return "application/javascript; charset=UTF-8";
+        }
+        if (filePath.endsWith(".png")) {
+            return "image/png";
+        }
+        if (filePath.endsWith(".jpg")) {
+            return "image/jpeg";
+        }
+        return "application/octet-stream";
+    }
+}
+
+
+```
+
+## 4、工程项目部署
+
+在AppServiceImpl中修改部署应用方法相关逻辑：
+
+```java
+ @Override
+    public String appDeploy(Long appId, UserLoginVO userLoginVO) {
+        // 校验参数
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        // 验证登录
+        ThrowUtils.throwIf(userLoginVO == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 查询应用信息
+        App app = getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        // 数据库如果没有deployKey，则生成随机的6位deployKey；如果有，则使用原来的deployKey
+        String deployKey = "";
+        if (StrUtil.isBlank(app.getDeployKey())) {
+            deployKey = RandomUtil.randomString(6);
+        } else {
+            deployKey = app.getDeployKey();
+        }
+        // 拿到代码生成类型
+        String codeGenType = app.getCodeGenType();
+        // 将该应用生成的代码文件夹从code_output复制到code_deploy目录下
+        String sourceDir;
+        if ("vue_project".equals(codeGenType)) {
+            sourceDir = CodeFileSaveConstant.ROOT_PATH
+                    + File.separator
+                    + "vue_project_" + appId
+                    + File.separator
+                    + "dist";
+        } else {
+            sourceDir = CodeFileSaveConstant.ROOT_PATH
+                    + File.separator
+                    + appId + "_" + codeGenType;
+        }
+        File sourcePath = new File(sourceDir);
+        if (!sourcePath.exists()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        String targetDir = CodeFileSaveConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
+        try {
+            FileUtil.copyContent(sourcePath, new File(targetDir), true);
+        } catch (IORuntimeException e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "部署失败");
+        }
+        // 更新数据库
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setDeployKey(deployKey);
+        updateApp.setEditTime(LocalDateTime.now());
+        updateApp.setDeployedTime(LocalDateTime.now());
+        boolean success = updateById(updateApp);
+        if (!success) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "部署失败，请稍后再试");
+        }
+        // 返回可访问的部署后的网站地址url
+        return CodeFileSaveConstant.CODE_DEPLOY_HOST + "/" + deployKey;
+    }
+```
+
+# 七、功能扩展
