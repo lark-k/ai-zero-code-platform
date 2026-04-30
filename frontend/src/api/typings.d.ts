@@ -320,7 +320,7 @@ declare namespace API {
     status?: string
   }
 
-  type ServerSentEventString = true
+  type ChatStreamChunk = string
 
   type serveStaticResourceParams = {
     appId: number

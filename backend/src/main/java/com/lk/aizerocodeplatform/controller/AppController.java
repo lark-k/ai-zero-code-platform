@@ -102,7 +102,7 @@ public class AppController {
 
     @Operation(summary = "用户对话生成应用")
     @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam String message,
+    public Flux<String> chatToGenCode(@RequestParam String message,
                                                        @RequestParam Long appId,
                                                        HttpServletRequest request) {
         UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);

@@ -104,7 +104,7 @@ export async function chatToGenCode(
   params: API.chatToGenCodeParams,
   options?: { [key: string]: any }
 ) {
-  return request<API.ServerSentEventString[]>('/app/chat', {
+  return request<API.ChatStreamChunk>('/app/chat', {
     method: 'GET',
     params: {
       ...params,

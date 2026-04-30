@@ -144,7 +144,7 @@ public interface AppService extends IService<App> {
      * @param userLoginVO 登录用户的脱敏信息
      * @return 流式响应
      */
-    Flux<ServerSentEvent<String>> chatToGenCode(String message, Long appId, UserLoginVO userLoginVO);
+    Flux<String> chatToGenCode(String message, Long appId, UserLoginVO userLoginVO);
 
     /**
      * 应用部署

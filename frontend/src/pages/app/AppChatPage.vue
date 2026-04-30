@@ -16,18 +16,33 @@ interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   createTime?: string
+  renderedHtml?: string
   rawContent?: string
   pendingContent?: string
   previewOnComplete?: boolean
   streamFinished?: boolean
-  typingTimer?: number
+  flushFrameId?: number
   streaming?: boolean
+}
+
+interface StructuredStreamPayload {
+  v?: string
+  type?: string
+  data?: string
+  id?: string
+  name?: string
+  arguments?: string
+  result?: string
+}
+
+interface ApiErrorPayload {
+  code?: number
+  data?: unknown
+  message?: string
 }
 
 const API_BASE_URL = 'http://localhost:8123/api'
 const HISTORY_PAGE_SIZE = 20
-const TYPEWRITER_INTERVAL = 28
-const TYPEWRITER_CHARS_PER_TICK = 2
 
 const route = useRoute()
 const router = useRouter()
@@ -46,14 +61,39 @@ const hasMoreHistory = ref(false)
 const previewReady = ref(false)
 const previewVersion = ref(Date.now())
 const messageListRef = ref<HTMLElement>()
-let eventSource: EventSource | null = null
+let streamAbortController: AbortController | null = null
 
 const appId = computed(() => String(route.params.id || ''))
+const isVueProjectMode = computed(() => app.value?.codeGenType === 'vue_project')
 const appAuthorInitial = computed(() => {
   const displayName = app.value?.userVo?.userName || app.value?.userVo?.userAccount || 'A'
   return displayName.trim().charAt(0).toUpperCase() || 'A'
 })
 const appName = computed(() => app.value?.appName || '未命名应用')
+const generationModeLabel = computed(() => {
+  switch (app.value?.codeGenType) {
+    case 'vue_project':
+      return 'Vue 项目模式'
+    case 'multi_file':
+      return '多文件页面模式'
+    case 'html':
+      return 'HTML 页面模式'
+    default:
+      return '代码生成模式'
+  }
+})
+const generationModeDescription = computed(() =>
+  isVueProjectMode.value
+    ? '后端会边生成边调用写文件工具，聊天区会同步展示文件写入过程。'
+    : '后端会直接返回页面代码片段，聊天区会按流式文本实时展示。',
+)
+const streamStatusLabel = computed(() =>
+  sending.value
+    ? isVueProjectMode.value
+      ? 'AI 正在写入项目文件'
+      : 'AI 正在生成页面代码'
+    : '准备继续生成',
+)
 const isOwner = computed(
   () => Boolean(loginUserStore.loginUser.id) && app.value?.userId === loginUserStore.loginUser.id,
 )
@@ -61,6 +101,18 @@ const canManage = computed(() => loginUserStore.isAdmin || isOwner.value)
 const isDeployed = computed(() => Boolean(app.value?.deployKey))
 const deployedUrl = computed(() => (app.value?.deployKey ? `http://localhost/${app.value.deployKey}` : ''))
 const previewUrl = computed(() => `${API_BASE_URL}/static/${appId.value}?t=${previewVersion.value}`)
+const previewPlaceholderTitle = computed(() =>
+  sending.value
+    ? isVueProjectMode.value
+      ? 'AI 正在生成并写入项目文件'
+      : 'AI 正在生成网页内容'
+    : '等待生成结果',
+)
+const previewPlaceholderDescription = computed(() =>
+  isVueProjectMode.value
+    ? 'Vue 项目模式会先生成并写入多文件内容。如果右侧暂时没有最新预览，通常还需要后端完成依赖安装或构建。'
+    : '流式回复结束后，右侧会自动刷新本地预览。',
+)
 
 const hasHtmlCodeBlock = (content: string) => /```html\s*[\r\n]/i.test(content)
 const hasMultiFileCodeBlocks = (content: string) =>
@@ -72,6 +124,13 @@ const shouldRefreshPreviewFromResponse = (content: string) => {
   const normalizedContent = content.trim()
   if (!normalizedContent) {
     return false
+  }
+
+  if (app.value?.codeGenType === 'vue_project') {
+    return (
+      /\[工具调用\]\s*写入文件/i.test(normalizedContent) ||
+      /```(?:vue|js|jsx|ts|tsx|css|scss|less|html|json)\s*[\r\n]/i.test(normalizedContent)
+    )
   }
 
   if (app.value?.codeGenType === 'multi_file') {
@@ -111,10 +170,10 @@ const loadApp = async () => {
   }
 }
 
-const closeSse = () => {
-  if (eventSource) {
-    eventSource.close()
-    eventSource = null
+const closeStream = () => {
+  if (streamAbortController) {
+    streamAbortController.abort()
+    streamAbortController = null
   }
 }
 
@@ -126,6 +185,8 @@ const toChatMessage = (record: API.ChatHistory): ChatMessage => ({
   role: getChatRole(record.messageType),
   content: record.message || '',
   createTime: record.createTime,
+  renderedHtml:
+    getChatRole(record.messageType) === 'assistant' ? renderMarkdown(record.message || '') : undefined,
 })
 
 const appendHistoryMessages = (records: API.ChatHistory[], mode: 'replace' | 'prepend') => {
@@ -212,13 +273,16 @@ const normalizeLanguage = (language = '') => language.trim().toLowerCase() || 't
 
 const highlightCode = (code: string, language = '') => {
   const lang = normalizeLanguage(language)
-  let html = escapeHtml(code)
+  const html = escapeHtml(code)
 
   if (['html', 'xml', 'vue'].includes(lang)) {
     return html
       .replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="token-comment">$1</span>')
       .replace(/(&lt;\/?)([a-zA-Z][\w:-]*)/g, '$1<span class="token-tag">$2</span>')
-      .replace(/(\s)([a-zA-Z_:][\w:.-]*)(=)(&quot;.*?&quot;|&#39;.*?&#39;)/g, '$1<span class="token-attr">$2</span>$3<span class="token-string">$4</span>')
+      .replace(
+        /(\s)([a-zA-Z_:][\w:.-]*)(=)(&quot;.*?&quot;|&#39;.*?&#39;)/g,
+        '$1<span class="token-attr">$2</span>$3<span class="token-string">$4</span>',
+      )
   }
 
   if (['css', 'scss', 'less'].includes(lang)) {
@@ -233,7 +297,10 @@ const highlightCode = (code: string, language = '') => {
     return html
       .replace(/(\/\/.*|\/\*[\s\S]*?\*\/)/g, '<span class="token-comment">$1</span>')
       .replace(/(&quot;.*?&quot;|&#39;.*?&#39;|`.*?`)/g, '<span class="token-string">$1</span>')
-      .replace(/\b(const|let|var|function|return|if|else|for|while|class|new|import|from|export|async|await|try|catch|throw|true|false|null|undefined)\b/g, '<span class="token-keyword">$1</span>')
+      .replace(
+        /\b(const|let|var|function|return|if|else|for|while|class|new|import|from|export|async|await|try|catch|throw|true|false|null|undefined)\b/g,
+        '<span class="token-keyword">$1</span>',
+      )
       .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="token-number">$1</span>')
   }
 
@@ -379,28 +446,134 @@ const renderMarkdown = (content: string) => {
   return html.join('')
 }
 
+const formatStructuredStreamChunk = (payload: StructuredStreamPayload) => {
+  if (payload.v) {
+    return payload.v
+  }
+
+  if (payload.type === 'ai_response') {
+    return payload.data || ''
+  }
+
+  if (payload.type === 'tool_request') {
+    return `\n\n[选择工具] ${payload.name || '工具调用'}\n\n`
+  }
+
+  if (payload.type === 'tool_executed') {
+    let relativeFilePath = ''
+    let content = ''
+
+    if (payload.arguments) {
+      try {
+        const parsedArguments = JSON.parse(payload.arguments) as {
+          relativeFilePath?: string
+          content?: string
+        }
+        relativeFilePath = parsedArguments.relativeFilePath || ''
+        content = parsedArguments.content || ''
+      } catch {
+        relativeFilePath = ''
+      }
+    }
+
+    if (relativeFilePath) {
+      const suffix = relativeFilePath.includes('.')
+        ? relativeFilePath.split('.').pop() || 'text'
+        : 'text'
+      return (
+        `\n\n[工具调用] 写入文件 ${relativeFilePath}\n` +
+        `\`\`\`${suffix}\n${content}\n\`\`\`\n\n`
+      )
+    }
+
+    return payload.result ? `\n\n[工具调用结果] ${payload.result}\n\n` : ''
+  }
+
+  return ''
+}
+
 const extractAssistantChunk = (rawData: string) => {
   if (!rawData) {
     return ''
   }
 
   try {
-    const parsed = JSON.parse(rawData) as { v?: string }
-    return parsed.v ?? rawData
+    const parsed = JSON.parse(rawData) as StructuredStreamPayload
+    return formatStructuredStreamChunk(parsed) || rawData
   } catch {
     return rawData
   }
 }
 
-const stopTypewriter = (assistantMessage: ChatMessage) => {
-  if (assistantMessage.typingTimer) {
-    window.clearInterval(assistantMessage.typingTimer)
-    assistantMessage.typingTimer = undefined
+const resolveStreamErrorMessage = (rawText: string) => {
+  try {
+    const parsed = JSON.parse(rawText) as { message?: string }
+    return parsed.message || rawText
+  } catch {
+    return rawText
   }
 }
 
+const parseApiErrorPayload = (rawText: string) => {
+  try {
+    const parsed = JSON.parse(rawText) as ApiErrorPayload
+    if (typeof parsed.code === 'number' && parsed.code !== 0) {
+      return parsed
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+const parseSseFrame = (frame: string) => {
+  const normalizedFrame = frame.replace(/\r/g, '')
+  const lines = normalizedFrame.split('\n')
+  const dataLines: string[] = []
+  let event = 'message'
+  let hasSsePrefix = false
+
+  lines.forEach((line) => {
+    if (!line || line.startsWith(':')) {
+      return
+    }
+    if (line.startsWith('event:')) {
+      hasSsePrefix = true
+      event = line.slice(6).trim() || 'message'
+      return
+    }
+    if (line.startsWith('data:')) {
+      hasSsePrefix = true
+      dataLines.push(line.slice(5).trimStart())
+    }
+  })
+
+  if (!hasSsePrefix) {
+    return {
+      event: 'message',
+      data: normalizedFrame,
+    }
+  }
+
+  return {
+    event,
+    data: dataLines.join('\n'),
+  }
+}
+
+const appendAssistantContent = (assistantMessage: ChatMessage, content: string) => {
+  if (!content) {
+    return
+  }
+  assistantMessage.content += content
+  assistantMessage.renderedHtml = renderMarkdown(assistantMessage.content)
+}
+
 const completeAssistantMessage = (assistantMessage: ChatMessage) => {
-  stopTypewriter(assistantMessage)
+  if (assistantMessage.flushFrameId) {
+    window.cancelAnimationFrame(assistantMessage.flushFrameId)
+    assistantMessage.flushFrameId = undefined
+  }
   assistantMessage.streaming = false
   sending.value = false
   if (assistantMessage.previewOnComplete) {
@@ -410,29 +583,35 @@ const completeAssistantMessage = (assistantMessage: ChatMessage) => {
   void scrollToBottom()
 }
 
-const startTypewriter = (assistantMessage: ChatMessage) => {
-  if (assistantMessage.typingTimer) {
+const flushAssistantPendingContent = (assistantMessage: ChatMessage) => {
+  assistantMessage.flushFrameId = undefined
+
+  const pending = assistantMessage.pendingContent || ''
+  if (pending) {
+    assistantMessage.pendingContent = ''
+    appendAssistantContent(assistantMessage, pending)
+    void scrollToBottom()
+  }
+
+  if (assistantMessage.pendingContent) {
+    scheduleAssistantFlush(assistantMessage)
     return
   }
 
-  assistantMessage.typingTimer = window.setInterval(() => {
-    const pending = assistantMessage.pendingContent || ''
-    if (!pending) {
-      stopTypewriter(assistantMessage)
-      if (assistantMessage.streamFinished) {
-        completeAssistantMessage(assistantMessage)
-      }
-      return
-    }
+  if (assistantMessage.streamFinished) {
+    completeAssistantMessage(assistantMessage)
+  }
+}
 
-    assistantMessage.content += pending.slice(0, TYPEWRITER_CHARS_PER_TICK)
-    assistantMessage.pendingContent = pending.slice(TYPEWRITER_CHARS_PER_TICK)
-    void scrollToBottom()
+const scheduleAssistantFlush = (assistantMessage: ChatMessage) => {
+  if (assistantMessage.flushFrameId) {
+    return
+  }
 
-    if (!assistantMessage.pendingContent && assistantMessage.streamFinished) {
-      completeAssistantMessage(assistantMessage)
-    }
-  }, TYPEWRITER_INTERVAL)
+  // 按浏览器绘制节奏合批刷新，避免逐字机拖慢长代码块展示。
+  assistantMessage.flushFrameId = window.requestAnimationFrame(() => {
+    flushAssistantPendingContent(assistantMessage)
+  })
 }
 
 const queueAssistantChunk = (assistantMessage: ChatMessage, rawData: string) => {
@@ -442,7 +621,124 @@ const queueAssistantChunk = (assistantMessage: ChatMessage, rawData: string) => 
   }
   assistantMessage.rawContent = `${assistantMessage.rawContent || ''}${chunk}`
   assistantMessage.pendingContent = `${assistantMessage.pendingContent || ''}${chunk}`
-  startTypewriter(assistantMessage)
+  scheduleAssistantFlush(assistantMessage)
+}
+
+const finishAssistantStream = (assistantMessage: ChatMessage) => {
+  assistantMessage.previewOnComplete = shouldRefreshPreviewFromResponse(
+    assistantMessage.rawContent || assistantMessage.content,
+  )
+  assistantMessage.streamFinished = true
+  if (assistantMessage.pendingContent) {
+    scheduleAssistantFlush(assistantMessage)
+    return
+  }
+  completeAssistantMessage(assistantMessage)
+}
+
+const failAssistantStream = (assistantMessage: ChatMessage, errorText: string) => {
+  if (!assistantMessage.streaming) {
+    return
+  }
+  assistantMessage.streamFinished = true
+  assistantMessage.pendingContent ||= errorText
+  scheduleAssistantFlush(assistantMessage)
+}
+
+const consumeAssistantStream = async (assistantMessage: ChatMessage, text: string) => {
+  const params = new URLSearchParams({
+    appId: appId.value,
+    message: text,
+  })
+  const controller = new AbortController()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  streamAbortController = controller
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/app/chat?${params.toString()}`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'text/event-stream',
+      },
+      signal: controller.signal,
+    })
+
+    const responseContentType = response.headers.get('content-type') || ''
+    if (!response.ok) {
+      const errorText = resolveStreamErrorMessage(await response.text())
+      throw new Error(errorText || `请求失败（${response.status}）`)
+    }
+
+    if (responseContentType.includes('application/json')) {
+      const rawText = await response.text()
+      const apiError = parseApiErrorPayload(rawText)
+      throw new Error(apiError?.message || resolveStreamErrorMessage(rawText) || '生成失败')
+    }
+
+    if (!response.body) {
+      throw new Error('未获取到可读取的流式响应')
+    }
+
+    const reader = response.body.getReader()
+
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+      buffer = buffer.replace(/\r\n/g, '\n')
+
+      let frameBoundaryIndex = buffer.indexOf('\n\n')
+      while (frameBoundaryIndex !== -1) {
+        const frame = buffer.slice(0, frameBoundaryIndex)
+        buffer = buffer.slice(frameBoundaryIndex + 2)
+
+        const parsedFrame = parseSseFrame(frame)
+        if (parsedFrame?.event === 'done') {
+          finishAssistantStream(assistantMessage)
+          return
+        }
+        if (parsedFrame?.data) {
+          queueAssistantChunk(assistantMessage, parsedFrame.data)
+        }
+
+        frameBoundaryIndex = buffer.indexOf('\n\n')
+      }
+
+      if (done) {
+        const rest = buffer.trim()
+        if (rest) {
+          const apiError = parseApiErrorPayload(rest)
+          if (apiError) {
+            throw new Error(apiError.message || '生成失败')
+          }
+          const parsedFrame = parseSseFrame(rest)
+          if (parsedFrame?.data) {
+            const frameError = parseApiErrorPayload(parsedFrame.data)
+            if (frameError) {
+              throw new Error(frameError.message || '生成失败')
+            }
+            queueAssistantChunk(assistantMessage, parsedFrame.data)
+          }
+        }
+        finishAssistantStream(assistantMessage)
+        return
+      }
+    }
+  } catch (error) {
+    if (controller.signal.aborted) {
+      return
+    }
+    const errorMessage = error instanceof Error ? error.message : '生成连接已中断，请稍后重试。'
+    failAssistantStream(assistantMessage, errorMessage)
+    message.error(errorMessage)
+    sending.value = false
+  } finally {
+    if (streamAbortController === controller) {
+      streamAbortController = null
+    }
+  }
 }
 
 const sendMessage = async (content = inputMessage.value) => {
@@ -460,7 +756,7 @@ const sendMessage = async (content = inputMessage.value) => {
     return
   }
 
-  closeSse()
+  closeStream()
   inputMessage.value = ''
   sending.value = true
 
@@ -473,6 +769,7 @@ const sendMessage = async (content = inputMessage.value) => {
     id: `${Date.now()}-assistant`,
     role: 'assistant',
     content: '',
+    renderedHtml: '',
     rawContent: '',
     pendingContent: '',
     previewOnComplete: false,
@@ -482,37 +779,7 @@ const sendMessage = async (content = inputMessage.value) => {
   messages.value.push(userMessage, assistantMessage)
   await scrollToBottom()
 
-  const params = new URLSearchParams({
-    appId: appId.value,
-    message: text,
-  })
-  eventSource = new EventSource(`${API_BASE_URL}/app/chat?${params.toString()}`, {
-    withCredentials: true,
-  })
-
-  eventSource.onmessage = (event) => {
-    queueAssistantChunk(assistantMessage, event.data)
-  }
-
-  eventSource.addEventListener('done', () => {
-    assistantMessage.previewOnComplete = shouldRefreshPreviewFromResponse(
-      assistantMessage.rawContent || assistantMessage.content,
-    )
-    assistantMessage.streamFinished = true
-    closeSse()
-    startTypewriter(assistantMessage)
-  })
-
-  eventSource.onerror = () => {
-    if (assistantMessage.streaming) {
-      assistantMessage.streamFinished = true
-      assistantMessage.pendingContent ||= '生成连接已中断，请稍后重试。'
-      startTypewriter(assistantMessage)
-      message.error('AI 生成连接中断')
-    }
-    sending.value = false
-    closeSse()
-  }
+  void consumeAssistantStream(assistantMessage, text)
 }
 
 const deployApp = async () => {
@@ -611,8 +878,13 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  closeSse()
-  messages.value.forEach(stopTypewriter)
+  closeStream()
+  messages.value.forEach((item) => {
+    if (item.flushFrameId) {
+      window.cancelAnimationFrame(item.flushFrameId)
+      item.flushFrameId = undefined
+    }
+  })
 })
 </script>
 
@@ -626,7 +898,7 @@ onBeforeUnmount(() => {
       </button>
       <a-space>
         <a-button @click="router.push(`/app/detail/${appId}`)">详情</a-button>
-        <a-button v-if="isDeployed" @click="openDeployedApp">访问已部署</a-button>
+        <a-button v-if="isDeployed" @click="openDeployedApp">访问已部署站点</a-button>
         <a-popconfirm
           v-if="canManage && isDeployed"
           title="确定取消部署该应用吗？"
@@ -658,6 +930,14 @@ onBeforeUnmount(() => {
 
     <section class="chat-workspace">
       <aside class="chat-panel">
+        <div class="chat-panel__meta">
+          <div class="chat-panel__badge-row">
+            <span class="chat-mode-badge">{{ generationModeLabel }}</span>
+            <span class="chat-status-text">{{ streamStatusLabel }}</span>
+          </div>
+          <p>{{ generationModeDescription }}</p>
+        </div>
+
         <div ref="messageListRef" class="message-list">
           <div v-if="hasMoreHistory" class="message-history-toolbar">
             <a-button
@@ -685,7 +965,7 @@ onBeforeUnmount(() => {
                 <div
                   v-else
                   class="markdown-body"
-                  v-html="renderMarkdown(item.content || (item.streaming ? '正在生成...' : ''))"
+                  v-html="item.renderedHtml || renderMarkdown(item.content || (item.streaming ? '正在生成...' : ''))"
                 ></div>
                 <span v-if="item.streaming" class="typing-cursor"></span>
               </div>
@@ -706,14 +986,14 @@ onBeforeUnmount(() => {
             v-model:value="inputMessage"
             :auto-size="{ minRows: 4, maxRows: 7 }"
             :bordered="false"
-            placeholder="请描述你想生成的网站，越详细效果越好哦"
+            placeholder="请描述你想生成的网站或应用，越具体越容易得到理想结果。"
             :disabled="sending"
             @pressEnter.ctrl="sendMessage()"
           />
           <div class="chat-input__footer">
             <div class="chat-input__tools">
-              <a-button>上传</a-button>
-              <a-button>编辑</a-button>
+              <a-button disabled>上传</a-button>
+              <a-button disabled>编辑</a-button>
               <a-button disabled>优化</a-button>
             </div>
             <a-button
@@ -724,9 +1004,16 @@ onBeforeUnmount(() => {
               class="chat-input__send"
               @click="sendMessage()"
             >
-              ↑
+              Send
             </a-button>
           </div>
+          <p class="chat-input__hint">
+            {{
+              isVueProjectMode
+                ? 'Vue 项目模式会把生成结果写入文件，并在聊天区展示关键写入记录。'
+                : '支持流式代码生成，按 Ctrl + Enter 可以快速发送。'
+            }}
+          </p>
         </div>
       </aside>
 
@@ -740,8 +1027,8 @@ onBeforeUnmount(() => {
         </div>
         <div v-else class="preview-empty">
           <a-spin :spinning="sending" />
-          <h2>{{ sending ? 'AI 正在生成网页文件' : '等待生成结果' }}</h2>
-          <p>流式回复结束后，会自动在这里展示本地预览。</p>
+          <h2>{{ previewPlaceholderTitle }}</h2>
+          <p>{{ previewPlaceholderDescription }}</p>
         </div>
       </section>
     </section>
@@ -831,10 +1118,45 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
+.chat-panel__meta {
+  padding: 18px 20px 0;
+}
+
+.chat-panel__meta p {
+  margin: 10px 0 0;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.chat-panel__badge-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.chat-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(59, 130, 246, 0.14));
+}
+
+.chat-status-text {
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .message-list {
   flex: 1;
   min-height: 0;
-  padding: 24px 20px;
+  padding: 18px 20px 24px;
   overflow-y: auto;
 }
 
@@ -1080,8 +1402,16 @@ onBeforeUnmount(() => {
 
 .chat-input__send {
   flex: 0 0 auto;
-  background: #9aa1a9;
-  border-color: #9aa1a9;
+  min-width: 72px;
+  background: #111827;
+  border-color: #111827;
+}
+
+.chat-input__hint {
+  margin: 12px 0 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .preview-panel {
@@ -1142,7 +1472,9 @@ onBeforeUnmount(() => {
 }
 
 .preview-empty p {
+  max-width: 520px;
   margin: 0;
+  line-height: 1.8;
 }
 
 @keyframes blink {

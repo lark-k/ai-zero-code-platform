@@ -4,6 +4,7 @@ import com.lk.aizerocodeplatform.ai.model.HtmlCodeResult;
 import com.lk.aizerocodeplatform.ai.model.MultiFileCodeResult;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
 import reactor.core.publisher.Flux;
 
@@ -60,5 +61,5 @@ public interface AiCodeGenService {
      * 当使用了MemoryId注解时，用户发送消息的参数必须使用UserMessage注解。
      */
     @SystemMessage(fromResource = "prompts/vue_project_file_system_prompt.txt")
-    Flux<String> generateVueProjectCodeStream(@UserMessage String userMessage, @MemoryId Long appId);
+    TokenStream generateVueProjectCodeStream(@UserMessage String userMessage, @MemoryId Long appId);
 }

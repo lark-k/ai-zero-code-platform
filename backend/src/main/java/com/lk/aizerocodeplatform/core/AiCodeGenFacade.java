@@ -1,15 +1,22 @@
 package com.lk.aizerocodeplatform.core;
 
+import cn.hutool.json.JSONUtil;
 import com.lk.aizerocodeplatform.ai.AiCodeGenService;
 import com.lk.aizerocodeplatform.ai.AiCodeGenServiceFactory;
 import com.lk.aizerocodeplatform.ai.model.HtmlCodeResult;
 import com.lk.aizerocodeplatform.ai.model.MultiFileCodeResult;
+import com.lk.aizerocodeplatform.ai.model.message.AiResponseMessage;
+import com.lk.aizerocodeplatform.ai.model.message.ToolCallingQuestMessage;
+import com.lk.aizerocodeplatform.ai.model.message.ToolCallingResultMessage;
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.exception.ThrowUtils;
 import com.lk.aizerocodeplatform.parser.CodeParseExecutor;
 import com.lk.aizerocodeplatform.saver.CodeFileSaveExecutor;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.tool.ToolExecution;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -132,8 +139,7 @@ public class AiCodeGenFacade {
      * @return Ai回复
      */
     private Flux<String> generateCodeVueProjectAndSaveStream(String userMessage, Long appId, CodeGenTypeEnum codeGenTypeEnum) {
-        Flux<String> codeStream = aiCodeGenServiceFactory.getAiCodeGenService(appId, codeGenTypeEnum).generateVueProjectCodeStream(userMessage, appId);
-        return processCodeStream(codeStream, CodeGenTypeEnum.MULTI_FILE, appId);
+        return processTokenStream(aiCodeGenServiceFactory.getAiCodeGenService(appId, codeGenTypeEnum).generateVueProjectCodeStream(userMessage, appId));
     }
 
     /**
@@ -160,5 +166,40 @@ public class AiCodeGenFacade {
                         log.error("保存失败：{}", e.getMessage());
                     }
                 });
+    }
+
+    /**
+     * 将tokenStream转换为Flux，本质是一个适配器，通过转换后原来方法返回值为Flux的方法仍然可用
+     */
+    private Flux<String> processTokenStream(TokenStream tokenStream) {
+        return Flux.create(sink -> {
+            // 监听tokenStream
+            tokenStream.onPartialResponse((String partialResponse) -> {
+                        // 将AI回复的消息封装为AI回复消息包装类
+                        AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
+                        // 将AI回复消息包装类转换为json字符串
+                        sink.next(JSONUtil.toJsonStr(aiResponseMessage));
+                    })
+                    .onPartialToolExecutionRequest((index, toolExecutionRequest) -> {
+                        // 将工具调用请求信息封装为包装类
+                        ToolCallingQuestMessage toolCallingQuestMessage = new ToolCallingQuestMessage(toolExecutionRequest);
+                        // 将工具调用请求信息包装类转换为json字符串
+                        sink.next(JSONUtil.toJsonStr(toolCallingQuestMessage));
+                    })
+                    .onToolExecuted((ToolExecution toolExecution) -> {
+                        // 将工具调用结果信息封装为包装类
+                        ToolCallingResultMessage toolCallingResultMessage = new ToolCallingResultMessage(toolExecution);
+                        // 将工具调用结果信息包装类转换为json字符串
+                        sink.next(JSONUtil.toJsonStr(toolCallingResultMessage));
+                    })
+                    .onCompleteResponse((ChatResponse chatResponse) -> {
+                        sink.complete();
+                    })
+                    .onError((Throwable error) -> {
+                        error.printStackTrace();
+                        sink.error(error);
+                    })
+                    .start();
+        });
     }
 }
