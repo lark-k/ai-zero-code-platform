@@ -8,13 +8,17 @@ import com.lk.aizerocodeplatform.ai.model.message.AiResponseMessage;
 import com.lk.aizerocodeplatform.ai.model.message.StreamMessage;
 import com.lk.aizerocodeplatform.ai.model.message.StreamMessageTypeEnum;
 import com.lk.aizerocodeplatform.ai.model.message.ToolCallingResultMessage;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import com.lk.aizerocodeplatform.core.builder.VueProjectBuilderd;
 import com.lk.aizerocodeplatform.enums.ChatMessageTypeEnum;
 import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
 import com.lk.aizerocodeplatform.service.ChatHistoryService;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
+import java.io.File;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -27,6 +31,8 @@ import java.util.Set;
 @Slf4j
 @Component
 public class JsonMessageStreamHandler {
+    @Resource
+    private VueProjectBuilderd vueProjectBuilderd;
 
     /**
      * 处理 TokenStream（VUE_PROJECT）
@@ -56,6 +62,9 @@ public class JsonMessageStreamHandler {
                     // 流式响应完成后，添加 AI 消息到对话历史
                     String aiResponse = chatHistoryStringBuilder.toString();
                     chatHistoryService.addChatHistory(appId, userLoginVO.getId(), aiResponse, ChatMessageTypeEnum.AI.getValue());
+                    // 打包构建Vue项目
+                    String projectPath = CodeFileSaveConstant.ROOT_PATH + File.separator + "vue_project_" + appId;
+                    vueProjectBuilderd.buildProjectAsync(projectPath);
                 })
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息

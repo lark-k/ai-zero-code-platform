@@ -427,7 +427,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         // 拿到代码生成类型
         String codeGenType = app.getCodeGenType();
         // 将该应用生成的代码文件夹从code_output复制到code_deploy目录下
-        String sourceDir = CodeFileSaveConstant.ROOT_PATH + File.separator + appId + "_" + codeGenType;
+        String sourceDir;
+        if ("vue_project".equals(codeGenType)) {
+            sourceDir = CodeFileSaveConstant.ROOT_PATH
+                    + File.separator
+                    + "vue_project_" + appId
+                    + File.separator
+                    + "dist";
+        } else {
+            sourceDir = CodeFileSaveConstant.ROOT_PATH
+                    + File.separator
+                    + appId + "_" + codeGenType;
+        }
         File sourcePath = new File(sourceDir);
         if (!sourcePath.exists()) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");

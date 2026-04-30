@@ -1,13 +1,10 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
+
 import { pageQuery } from '@/api/duihualishixiangguanjiekou.ts'
-import {
-  appDeploy,
-  cancelDeploy,
-  getAppVoById,
-} from '@/api/yingyongmokuaixiangguanjiekou.ts'
+import { appDeploy, cancelDeploy, getAppVoById } from '@/api/yingyongmokuaixiangguanjiekou.ts'
 import logoUrl from '@/assets/logo.png'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 
@@ -43,10 +40,13 @@ interface ApiErrorPayload {
 
 const API_BASE_URL = 'http://localhost:8123/api'
 const HISTORY_PAGE_SIZE = 20
+const PREVIEW_POLL_DELAY = 2000
+const PREVIEW_POLL_MAX_ATTEMPTS = 45
 
 const route = useRoute()
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
+
 const app = ref<API.AppVO>()
 const loadingApp = ref(false)
 const loadingHistory = ref(false)
@@ -59,61 +59,73 @@ const messages = ref<ChatMessage[]>([])
 const historyCursor = ref<string>()
 const hasMoreHistory = ref(false)
 const previewReady = ref(false)
+const previewHtml = ref('')
+const previewRefreshing = ref(false)
+const previewError = ref('')
 const previewVersion = ref(Date.now())
 const messageListRef = ref<HTMLElement>()
+
 let streamAbortController: AbortController | null = null
+let previewRequestId = 0
 
 const appId = computed(() => String(route.params.id || ''))
 const isVueProjectMode = computed(() => app.value?.codeGenType === 'vue_project')
+const appName = computed(() => app.value?.appName || '\u672a\u547d\u540d\u5e94\u7528')
 const appAuthorInitial = computed(() => {
   const displayName = app.value?.userVo?.userName || app.value?.userVo?.userAccount || 'A'
   return displayName.trim().charAt(0).toUpperCase() || 'A'
 })
-const appName = computed(() => app.value?.appName || '未命名应用')
 const generationModeLabel = computed(() => {
   switch (app.value?.codeGenType) {
     case 'vue_project':
-      return 'Vue 项目模式'
+      return 'Vue \u9879\u76ee'
     case 'multi_file':
-      return '多文件页面模式'
+      return '\u591a\u6587\u4ef6'
     case 'html':
-      return 'HTML 页面模式'
+      return 'HTML'
     default:
-      return '代码生成模式'
+      return '\u4ee3\u7801\u751f\u6210'
   }
 })
 const generationModeDescription = computed(() =>
   isVueProjectMode.value
-    ? '后端会边生成边调用写文件工具，聊天区会同步展示文件写入过程。'
-    : '后端会直接返回页面代码片段，聊天区会按流式文本实时展示。',
+    ? 'Vue \u6a21\u5f0f\u4f1a\u5148\u5199\u5165\u6587\u4ef6\uff0c\u518d\u7b49\u5f85\u540e\u7aef\u6784\u5efa\u5b8c\u6210\u540e\u663e\u793a\u9884\u89c8\u3002'
+    : '\u6d41\u5f0f\u54cd\u5e94\u7ed3\u675f\u540e\u4f1a\u81ea\u52a8\u5237\u65b0\u9884\u89c8\u3002',
 )
-const streamStatusLabel = computed(() =>
-  sending.value
-    ? isVueProjectMode.value
-      ? 'AI 正在写入项目文件'
-      : 'AI 正在生成页面代码'
-    : '准备继续生成',
-)
+const streamStatusLabel = computed(() => {
+  if (sending.value) {
+    return isVueProjectMode.value ? 'AI \u6b63\u5728\u5199\u5165\u9879\u76ee\u6587\u4ef6' : 'AI \u6b63\u5728\u751f\u6210\u9875\u9762'
+  }
+  if (previewRefreshing.value) {
+    return '\u6b63\u5728\u5237\u65b0\u9884\u89c8'
+  }
+  return '\u5c31\u7eea'
+})
 const isOwner = computed(
   () => Boolean(loginUserStore.loginUser.id) && app.value?.userId === loginUserStore.loginUser.id,
 )
 const canManage = computed(() => loginUserStore.isAdmin || isOwner.value)
 const isDeployed = computed(() => Boolean(app.value?.deployKey))
 const deployedUrl = computed(() => (app.value?.deployKey ? `http://localhost/${app.value.deployKey}` : ''))
-const previewUrl = computed(() => `${API_BASE_URL}/static/${appId.value}?t=${previewVersion.value}`)
-const previewPlaceholderTitle = computed(() =>
-  sending.value
-    ? isVueProjectMode.value
-      ? 'AI 正在生成并写入项目文件'
-      : 'AI 正在生成网页内容'
-    : '等待生成结果',
-)
-const previewPlaceholderDescription = computed(() =>
-  isVueProjectMode.value
-    ? 'Vue 项目模式会先生成并写入多文件内容。如果右侧暂时没有最新预览，通常还需要后端完成依赖安装或构建。'
-    : '流式回复结束后，右侧会自动刷新本地预览。',
-)
-
+const previewRootUrl = computed(() => `${API_BASE_URL}/static/${appId.value}/`)
+const previewUrl = computed(() => `${previewRootUrl.value}?t=${previewVersion.value}`)
+const previewTitle = computed(() => {
+  if (previewError.value && !sending.value && !previewRefreshing.value) {
+    return '\u9884\u89c8\u4e0d\u53ef\u7528'
+  }
+  if (sending.value) {
+    return isVueProjectMode.value ? '\u6b63\u5728\u6784\u5efa\u9884\u89c8...' : '\u6b63\u5728\u66f4\u65b0\u9884\u89c8...'
+  }
+  return '\u9884\u89c8'
+})
+const previewDescription = computed(() => {
+  if (previewError.value && !sending.value && !previewRefreshing.value) {
+    return previewError.value
+  }
+  return isVueProjectMode.value
+    ? '\u540e\u7aef\u5b8c\u6210 npm install / npm run build \u4e14\u751f\u6210\u6587\u4ef6\u53ef\u8bbf\u95ee\u540e\uff0c\u8fd9\u91cc\u4f1a\u663e\u793a\u9884\u89c8\u3002'
+    : '\u4ee3\u7801\u751f\u6210\u5b8c\u6210\u540e\uff0c\u8fd9\u91cc\u4f1a\u663e\u793a\u9884\u89c8\u3002'
+})
 const hasHtmlCodeBlock = (content: string) => /```html\s*[\r\n]/i.test(content)
 const hasMultiFileCodeBlocks = (content: string) =>
   /```html\s*[\r\n]/i.test(content) &&
@@ -128,7 +140,8 @@ const shouldRefreshPreviewFromResponse = (content: string) => {
 
   if (app.value?.codeGenType === 'vue_project') {
     return (
-      /\[工具调用\]\s*写入文件/i.test(normalizedContent) ||
+      /\[tool\]\s*write file/i.test(normalizedContent) ||
+      /\[瀹搞儱鍙跨拫鍐暏\]\s*閸愭瑥鍙嗛弬鍥︽/i.test(normalizedContent) ||
       /```(?:vue|js|jsx|ts|tsx|css|scss|less|html|json)\s*[\r\n]/i.test(normalizedContent)
     )
   }
@@ -140,6 +153,114 @@ const shouldRefreshPreviewFromResponse = (content: string) => {
   return hasHtmlCodeBlock(normalizedContent)
 }
 
+const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+
+const rewritePreviewHtml = (html: string) => {
+  const previewRoot = previewRootUrl.value
+  const withBase = /<head[\s>]/i.test(html)
+    ? html.replace(/<head([^>]*)>/i, `<head$1><base href="${previewRoot}">`)
+    : `<head><base href="${previewRoot}"></head>${html}`
+
+  return withBase
+    .replace(/((?:src|href|poster|action)=["'])\/(?!\/)/gi, `$1${previewRoot}`)
+    .replace(/url\((['"]?)\/(?!\/)/gi, `url($1${previewRoot}`)
+}
+
+const refreshPreview = async ({
+  poll = false,
+  preserveCurrent = false,
+  silent = false,
+}: {
+  poll?: boolean
+  preserveCurrent?: boolean
+  silent?: boolean
+} = {}) => {
+  if (!appId.value) {
+    return false
+  }
+
+  const requestId = ++previewRequestId
+  const maxAttempts = poll ? PREVIEW_POLL_MAX_ATTEMPTS : 1
+  let lastErrorMessage = ''
+
+  previewRefreshing.value = true
+  previewError.value = ''
+
+  if (!preserveCurrent) {
+    previewReady.value = false
+    previewHtml.value = ''
+  }
+
+  try {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const response = await fetch(`${previewRootUrl.value}?t=${Date.now()}`, {
+          method: 'GET',
+          credentials: 'include',
+        })
+
+        if (response.status === 404) {
+          throw new Error('PREVIEW_NOT_READY')
+        }
+
+        if (!response.ok) {
+          throw new Error(`Preview load failed (${response.status})`)
+        }
+
+        const html = await response.text()
+        if (!html.trim()) {
+          throw new Error('PREVIEW_NOT_READY')
+        }
+
+        if (requestId !== previewRequestId) {
+          return false
+        }
+
+        previewHtml.value = isVueProjectMode.value ? rewritePreviewHtml(html) : ''
+        previewReady.value = true
+        previewVersion.value = Date.now()
+        previewError.value = ''
+        return true
+      } catch (error) {
+        lastErrorMessage = error instanceof Error ? error.message : 'Preview load failed'
+
+        if (lastErrorMessage === 'PREVIEW_NOT_READY' && attempt < maxAttempts) {
+          await wait(PREVIEW_POLL_DELAY)
+          continue
+        }
+
+        break
+      }
+    }
+
+    if (requestId !== previewRequestId) {
+      return false
+    }
+
+    if (!preserveCurrent) {
+      previewReady.value = false
+      previewHtml.value = ''
+    }
+
+    previewError.value =
+      lastErrorMessage === 'PREVIEW_NOT_READY'
+        ? isVueProjectMode.value
+          ? 'Preview is still building. Try reloading in a moment.'
+          : 'Preview files have not been generated yet.'
+        : lastErrorMessage
+
+    if (!silent && previewError.value) {
+      message.warning(previewError.value)
+    }
+
+    return false
+  } finally {
+    if (requestId === previewRequestId) {
+      previewRefreshing.value = false
+    }
+  }
+}
+
 const scrollToBottom = async () => {
   await nextTick()
   if (messageListRef.value) {
@@ -149,7 +270,7 @@ const scrollToBottom = async () => {
 
 const loadApp = async () => {
   if (!appId.value) {
-    message.error('应用 id 不正确')
+    message.error('Invalid app id')
     await router.push('/')
     return
   }
@@ -158,13 +279,13 @@ const loadApp = async () => {
   try {
     const res = await getAppVoById({ id: appId.value as unknown as number })
     if (res.data.code !== 0 || !res.data.data) {
-      message.error(res.data.message || '获取应用信息失败')
+      message.error(res.data.message || 'Failed to load app info')
       await router.push('/')
       return
     }
     app.value = res.data.data
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '获取应用信息失败，请稍后重试')
+    message.error(error instanceof Error ? error.message : 'Failed to load app info')
   } finally {
     loadingApp.value = false
   }
@@ -230,8 +351,9 @@ const loadHistory = async (loadMore = false) => {
       pageSize: HISTORY_PAGE_SIZE,
       ...(loadMore && historyCursor.value ? { lastCreateTime: historyCursor.value } : {}),
     })
+
     if (res.data.code !== 0) {
-      message.error(res.data.message || '加载历史对话失败')
+      message.error(res.data.message || 'Failed to load chat history')
       return
     }
 
@@ -251,7 +373,7 @@ const loadHistory = async (loadMore = false) => {
       }
     }
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '加载历史对话失败，请稍后重试')
+    message.error(error instanceof Error ? error.message : 'Failed to load chat history')
   } finally {
     if (loadMore) {
       loadingMoreHistory.value = false
@@ -456,7 +578,7 @@ const formatStructuredStreamChunk = (payload: StructuredStreamPayload) => {
   }
 
   if (payload.type === 'tool_request') {
-    return `\n\n[选择工具] ${payload.name || '工具调用'}\n\n`
+    return `\n\n[Tool] ${payload.name || 'Tool call'}\n\n`
   }
 
   if (payload.type === 'tool_executed') {
@@ -480,13 +602,10 @@ const formatStructuredStreamChunk = (payload: StructuredStreamPayload) => {
       const suffix = relativeFilePath.includes('.')
         ? relativeFilePath.split('.').pop() || 'text'
         : 'text'
-      return (
-        `\n\n[工具调用] 写入文件 ${relativeFilePath}\n` +
-        `\`\`\`${suffix}\n${content}\n\`\`\`\n\n`
-      )
+      return `\n\n[Tool] Write file ${relativeFilePath}\n\`\`\`${suffix}\n${content}\n\`\`\`\n\n`
     }
 
-    return payload.result ? `\n\n[工具调用结果] ${payload.result}\n\n` : ''
+    return payload.result ? `\n\n[Tool Result] ${payload.result}\n\n` : ''
   }
 
   return ''
@@ -574,12 +693,18 @@ const completeAssistantMessage = (assistantMessage: ChatMessage) => {
     window.cancelAnimationFrame(assistantMessage.flushFrameId)
     assistantMessage.flushFrameId = undefined
   }
+
   assistantMessage.streaming = false
   sending.value = false
+
   if (assistantMessage.previewOnComplete) {
-    previewReady.value = true
-    previewVersion.value = Date.now()
+    void refreshPreview({
+      poll: isVueProjectMode.value,
+      preserveCurrent: true,
+      silent: true,
+    })
   }
+
   void scrollToBottom()
 }
 
@@ -608,7 +733,6 @@ const scheduleAssistantFlush = (assistantMessage: ChatMessage) => {
     return
   }
 
-  // 按浏览器绘制节奏合批刷新，避免逐字机拖慢长代码块展示。
   assistantMessage.flushFrameId = window.requestAnimationFrame(() => {
     flushAssistantPendingContent(assistantMessage)
   })
@@ -669,17 +793,17 @@ const consumeAssistantStream = async (assistantMessage: ChatMessage, text: strin
     const responseContentType = response.headers.get('content-type') || ''
     if (!response.ok) {
       const errorText = resolveStreamErrorMessage(await response.text())
-      throw new Error(errorText || `请求失败（${response.status}）`)
+      throw new Error(errorText || `Request failed (${response.status})`)
     }
 
     if (responseContentType.includes('application/json')) {
       const rawText = await response.text()
       const apiError = parseApiErrorPayload(rawText)
-      throw new Error(apiError?.message || resolveStreamErrorMessage(rawText) || '生成失败')
+      throw new Error(apiError?.message || resolveStreamErrorMessage(rawText) || 'Generation failed')
     }
 
     if (!response.body) {
-      throw new Error('未获取到可读取的流式响应')
+      throw new Error('No readable response body was returned')
     }
 
     const reader = response.body.getReader()
@@ -711,13 +835,13 @@ const consumeAssistantStream = async (assistantMessage: ChatMessage, text: strin
         if (rest) {
           const apiError = parseApiErrorPayload(rest)
           if (apiError) {
-            throw new Error(apiError.message || '生成失败')
+            throw new Error(apiError.message || 'Generation failed')
           }
           const parsedFrame = parseSseFrame(rest)
           if (parsedFrame?.data) {
             const frameError = parseApiErrorPayload(parsedFrame.data)
             if (frameError) {
-              throw new Error(frameError.message || '生成失败')
+              throw new Error(frameError.message || 'Generation failed')
             }
             queueAssistantChunk(assistantMessage, parsedFrame.data)
           }
@@ -730,7 +854,7 @@ const consumeAssistantStream = async (assistantMessage: ChatMessage, text: strin
     if (controller.signal.aborted) {
       return
     }
-    const errorMessage = error instanceof Error ? error.message : '生成连接已中断，请稍后重试。'
+    const errorMessage = error instanceof Error ? error.message : 'Streaming connection was interrupted'
     failAssistantStream(assistantMessage, errorMessage)
     message.error(errorMessage)
     sending.value = false
@@ -744,15 +868,15 @@ const consumeAssistantStream = async (assistantMessage: ChatMessage, text: strin
 const sendMessage = async (content = inputMessage.value) => {
   const text = content.trim()
   if (!text) {
-    message.info('请输入你想让 AI 完成的内容')
+    message.info('Describe what you want the AI to build first')
     return
   }
   if (!appId.value) {
-    message.error('应用 id 不正确')
+    message.error('Invalid app id')
     return
   }
   if (sending.value) {
-    message.info('AI 正在生成中，请稍后再发送')
+    message.info('The AI is still working on the current request')
     return
   }
 
@@ -776,39 +900,40 @@ const sendMessage = async (content = inputMessage.value) => {
     streamFinished: false,
     streaming: true,
   })
+
   messages.value.push(userMessage, assistantMessage)
   await scrollToBottom()
-
   void consumeAssistantStream(assistantMessage, text)
 }
 
 const deployApp = async () => {
   if (!canManage.value) {
-    message.warning('只有应用作者或管理员可以部署该应用')
+    message.warning('Only the owner or an admin can deploy this app')
     return
   }
   if (!appId.value) {
     return
   }
+
   deploying.value = true
   try {
     const res = await appDeploy({ appId: appId.value as unknown as number })
     if (res.data.code !== 0 || !res.data.data) {
-      message.error(res.data.message || '部署失败')
+      message.error(res.data.message || 'Deploy failed')
       return
     }
     Modal.success({
-      title: '部署成功',
+      title: 'Deploy succeeded',
       content: res.data.data,
-      okText: '知道了',
+      okText: 'OK',
     })
     if (navigator.clipboard) {
       await navigator.clipboard.writeText(res.data.data)
-      message.success('部署地址已复制')
+      message.success('Deploy URL copied')
     }
     await loadApp()
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '部署失败，请稍后重试')
+    message.error(error instanceof Error ? error.message : 'Deploy failed')
   } finally {
     deploying.value = false
   }
@@ -816,7 +941,7 @@ const deployApp = async () => {
 
 const cancelDeployApp = async () => {
   if (!canManage.value) {
-    message.warning('只有应用作者或管理员可以取消部署该应用')
+    message.warning('Only the owner or an admin can cancel deployment')
     return
   }
   if (!appId.value) {
@@ -827,14 +952,14 @@ const cancelDeployApp = async () => {
   try {
     const res = await cancelDeploy({ appId: appId.value as unknown as number })
     if (res.data.code !== 0) {
-      message.error(res.data.message || '取消部署失败')
+      message.error(res.data.message || 'Cancel deploy failed')
       return
     }
 
-    message.success(res.data.data || '取消部署成功')
+    message.success(res.data.data || 'Deployment removed')
     await loadApp()
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '取消部署失败，请稍后重试')
+    message.error(error instanceof Error ? error.message : 'Cancel deploy failed')
   } finally {
     canceling.value = false
   }
@@ -842,7 +967,7 @@ const cancelDeployApp = async () => {
 
 const openDeployedApp = () => {
   if (!deployedUrl.value) {
-    message.info('当前应用尚未部署')
+    message.info('This app has not been deployed yet')
     return
   }
 
@@ -856,13 +981,13 @@ const goEdit = () => {
 const initAutoMessage = async () => {
   const prompt = typeof route.query.prompt === 'string' ? route.query.prompt : ''
   if (!prompt) {
-    previewReady.value = true
+    await refreshPreview({ silent: true })
     return
   }
 
   const guardKey = `app-chat-auto-sent-${appId.value}-${prompt}`
   if (window.sessionStorage.getItem(guardKey)) {
-    previewReady.value = true
+    await refreshPreview({ silent: true })
     return
   }
 
@@ -894,16 +1019,16 @@ onBeforeUnmount(() => {
       <button type="button" class="chat-topbar__app" @click="goEdit">
         <img :src="logoUrl" alt="logo" />
         <span>{{ appName }}</span>
-        <span class="chat-topbar__chevron">⌄</span>
+        <span class="chat-topbar__chevron">></span>
       </button>
       <a-space>
-        <a-button @click="router.push(`/app/detail/${appId}`)">详情</a-button>
-        <a-button v-if="isDeployed" @click="openDeployedApp">访问已部署站点</a-button>
+        <a-button @click="router.push(`/app/detail/${appId}`)">&#35814;&#24773;</a-button>
+        <a-button v-if="isDeployed" @click="openDeployedApp">&#25171;&#24320;&#24050;&#37096;&#32626;&#24212;&#29992;</a-button>
         <a-popconfirm
           v-if="canManage && isDeployed"
-          title="确定取消部署该应用吗？"
-          ok-text="确定"
-          cancel-text="取消"
+          title="&#30830;&#35748;&#21462;&#28040;&#24403;&#21069;&#24212;&#29992;&#30340;&#37096;&#32626;&#21527;&#65311;"
+          ok-text="&#30830;&#35748;"
+          cancel-text="&#21462;&#28040;"
           @confirm="cancelDeployApp"
         >
           <a-button
@@ -912,7 +1037,7 @@ onBeforeUnmount(() => {
             :disabled="deploying"
             class="deploy-btn deploy-btn--danger"
           >
-            取消部署
+            &#21462;&#28040;&#37096;&#32626;
           </a-button>
         </a-popconfirm>
         <a-button
@@ -923,7 +1048,7 @@ onBeforeUnmount(() => {
           class="deploy-btn"
           @click="deployApp"
         >
-          部署
+          &#37096;&#32626;
         </a-button>
       </a-space>
     </header>
@@ -940,35 +1065,35 @@ onBeforeUnmount(() => {
 
         <div ref="messageListRef" class="message-list">
           <div v-if="hasMoreHistory" class="message-history-toolbar">
-            <a-button
-              type="text"
-              size="small"
-              :loading="loadingMoreHistory"
-              @click="loadHistory(true)"
-            >
-              查看更早的对话
+            <a-button type="text" size="small" :loading="loadingMoreHistory" @click="loadHistory(true)">
+              &#21152;&#36733;&#26356;&#26089;&#28040;&#24687;
             </a-button>
           </div>
+
           <a-spin v-if="loadingApp" />
           <a-spin v-else-if="loadingHistory" />
+
           <div v-else-if="!messages.length" class="message-empty">
-            <h3>还没有历史对话</h3>
-            <p>从下方输入你的需求后，这里会展示你和 AI 的完整生成记录。</p>
+            <h3>&#36824;&#27809;&#26377;&#28040;&#24687;</h3>
+            <p>&#25551;&#36848;&#20320;&#24819;&#26500;&#24314;&#30340;&#20869;&#23481;&#65292;&#23436;&#25972;&#23545;&#35805;&#20250;&#26174;&#31034;&#22312;&#36825;&#37324;&#12290;</p>
           </div>
+
           <template v-for="item in messages" :key="item.id">
             <div class="message-row" :class="`message-row--${item.role}`">
               <div v-if="item.role === 'assistant'" class="message-avatar">
                 <img :src="logoUrl" alt="AI" />
               </div>
+
               <div class="message-bubble" :class="{ 'message-bubble--streaming': item.streaming }">
                 <pre v-if="item.role === 'user'">{{ item.content }}</pre>
                 <div
                   v-else
                   class="markdown-body"
-                  v-html="item.renderedHtml || renderMarkdown(item.content || (item.streaming ? '正在生成...' : ''))"
+                  v-html="item.renderedHtml || renderMarkdown(item.content || (item.streaming ? '\u751f\u6210\u4e2d...' : ''))"
                 ></div>
                 <span v-if="item.streaming" class="typing-cursor"></span>
               </div>
+
               <a-avatar
                 v-if="item.role === 'user'"
                 :src="app?.userVo?.userAvatar"
@@ -986,16 +1111,12 @@ onBeforeUnmount(() => {
             v-model:value="inputMessage"
             :auto-size="{ minRows: 4, maxRows: 7 }"
             :bordered="false"
-            placeholder="请描述你想生成的网站或应用，越具体越容易得到理想结果。"
             :disabled="sending"
+            placeholder="&#25551;&#36848;&#20320;&#24819;&#29983;&#25104;&#30340;&#32593;&#31449;&#25110;&#24212;&#29992;..."
             @pressEnter.ctrl="sendMessage()"
           />
+
           <div class="chat-input__footer">
-            <div class="chat-input__tools">
-              <a-button disabled>上传</a-button>
-              <a-button disabled>编辑</a-button>
-              <a-button disabled>优化</a-button>
-            </div>
             <a-button
               type="primary"
               shape="circle"
@@ -1004,14 +1125,15 @@ onBeforeUnmount(() => {
               class="chat-input__send"
               @click="sendMessage()"
             >
-              Send
+              &#21457;&#36865;
             </a-button>
           </div>
+
           <p class="chat-input__hint">
             {{
               isVueProjectMode
-                ? 'Vue 项目模式会把生成结果写入文件，并在聊天区展示关键写入记录。'
-                : '支持流式代码生成，按 Ctrl + Enter 可以快速发送。'
+                ? 'Vue \u6a21\u5f0f\u9700\u8981\u7b49\u5f85\u540e\u7aef\u6784\u5efa\u5b8c\u6210\u540e\uff0c\u9884\u89c8\u624d\u53ef\u8bbf\u95ee\u3002'
+                : '\u6309 Ctrl + Enter \u53ef\u5feb\u901f\u53d1\u9001\u3002'
             }}
           </p>
         </div>
@@ -1019,22 +1141,41 @@ onBeforeUnmount(() => {
 
       <section class="preview-panel">
         <div v-if="previewReady" class="preview-frame-wrap">
-          <div v-if="sending" class="preview-loading-mask">
+          <div v-if="sending || previewRefreshing" class="preview-loading-mask">
             <a-spin />
-            <span>Updating preview...</span>
+            <span>&#27491;&#22312;&#26356;&#26032;&#39044;&#35272;...</span>
           </div>
-          <iframe :key="previewVersion" :src="previewUrl" title="生成后的网页展示"></iframe>
+
+          <iframe
+            v-if="isVueProjectMode"
+            :key="`inline-${previewVersion}`"
+            :srcdoc="previewHtml"
+            title="&#29983;&#25104;&#39044;&#35272;"
+          ></iframe>
+          <iframe
+            v-else
+            :key="previewVersion"
+            :src="previewUrl"
+            title="&#29983;&#25104;&#39044;&#35272;"
+          ></iframe>
         </div>
+
         <div v-else class="preview-empty">
-          <a-spin :spinning="sending" />
-          <h2>{{ previewPlaceholderTitle }}</h2>
-          <p>{{ previewPlaceholderDescription }}</p>
+          <a-spin :spinning="sending || previewRefreshing" />
+          <h2>{{ previewTitle }}</h2>
+          <p>{{ previewDescription }}</p>
+          <a-button
+            v-if="previewError && !previewRefreshing"
+            class="preview-empty__action"
+            @click="refreshPreview({ poll: isVueProjectMode, silent: false })"
+          >
+            &#37325;&#26032;&#21152;&#36733;&#39044;&#35272;
+          </a-button>
         </div>
       </section>
     </section>
   </main>
 </template>
-
 <style scoped>
 .chat-page {
   min-height: calc(100vh - 180px);
@@ -1385,19 +1526,9 @@ onBeforeUnmount(() => {
 .chat-input__footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   margin-top: 12px;
-}
-
-.chat-input__tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.chat-input__tools :deep(.ant-btn) {
-  border-radius: 999px;
 }
 
 .chat-input__send {
@@ -1477,6 +1608,10 @@ onBeforeUnmount(() => {
   line-height: 1.8;
 }
 
+.preview-empty__action {
+  margin-top: 4px;
+}
+
 @keyframes blink {
   50% {
     opacity: 0;
@@ -1513,3 +1648,5 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
+

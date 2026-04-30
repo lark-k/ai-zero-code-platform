@@ -64,7 +64,21 @@ public class StaticResourceController {
                 resourcePath = "/index.html";
             }
             // 构建文件路径
-            String filePath = CodeFileSaveConstant.ROOT_PATH + File.separator + appId + "_" + codeGenType + resourcePath;
+            String baseDir;
+            if ("vue_project".equals(codeGenType)) {
+                // Vue 项目真实目录：vue_project_{appId}/dist
+                baseDir = CodeFileSaveConstant.ROOT_PATH
+                        + File.separator
+                        + "vue_project_" + appId
+                        + File.separator
+                        + "dist";
+            } else {
+                // 其他类型仍然沿用旧规则：{appId}_{codeGenType}
+                baseDir = CodeFileSaveConstant.ROOT_PATH
+                        + File.separator
+                        + appId + "_" + codeGenType;
+            }
+            String filePath = baseDir + resourcePath;
             File file = new File(filePath);
             // 检查文件是否存在
             if (!file.exists()) {
