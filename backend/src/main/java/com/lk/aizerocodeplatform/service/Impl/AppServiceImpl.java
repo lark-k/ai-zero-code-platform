@@ -21,7 +21,9 @@ import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserVO;
 import com.lk.aizerocodeplatform.service.ChatHistoryService;
+import com.lk.aizerocodeplatform.service.OssUploadService;
 import com.lk.aizerocodeplatform.service.UserService;
+import com.lk.aizerocodeplatform.tools.WebScreenShotCmdUtils;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
@@ -30,6 +32,7 @@ import com.lk.aizerocodeplatform.mapper.AppMapper;
 import com.lk.aizerocodeplatform.service.AppService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.springframework.beans.BeanUtils;
 import org.springframework.http.codec.ServerSentEvent;
@@ -54,6 +57,7 @@ import java.util.stream.Collectors;
  * @since 2026-04-24
  */
 @Service
+@Slf4j
 public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppService {
     @Resource
     private UserService userService;
@@ -65,6 +69,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private ChatHistoryService chatHistoryService;
     @Resource
     private StreamHandlerExecutor streamHandlerExecutor;
+    @Resource
+    private OssUploadService ossUploadService;
 
     @Override
     public Long addApp(AddAppDTO addAppDTO, HttpServletRequest request) {
@@ -459,8 +465,51 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (!success) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "部署失败，请稍后再试");
         }
-        // 返回可访问的部署后的网站地址url
-        return CodeFileSaveConstant.CODE_DEPLOY_HOST + "/" + deployKey;
+        // 得到部署后的网站地址url
+        String deployUrl = CodeFileSaveConstant.CODE_DEPLOY_HOST + "/" + deployKey;
+        // 异步执行网站截图、网站截图上传oss、更新数据库
+        updateCoverAsync(appId, deployUrl);
+        return deployUrl;
+    }
+
+    /**
+     * 异步执行网站截图、网站截图上传oss、更新数据库
+     *
+     * @param appId     应用id
+     * @param deployUrl 部署应用后得到的url
+     */
+    public void updateCoverAsync(Long appId, String deployUrl) {
+        Thread.startVirtualThread(() -> {
+            // 网站截图
+            String imgPath = WebScreenShotCmdUtils.saveWebScreenShot(deployUrl);
+            try {
+                // 将网站截图上传到阿里云oss
+                String ossPath = ossUploadService.uploadCompressedScreenshot(imgPath);
+                // 将保存后的阿里云oss路径保存到数据库中的封面字段
+                updateCover(appId, ossPath);
+            } catch (Exception e) {
+                log.error("异步执行网站截图、网站截图上传oss、更新数据库失败：{}", e.getMessage());
+            } finally {
+                // 清理temp中的截图文件，防止过度堆积
+                FileUtil.del(imgPath);
+            }
+        });
+    }
+
+    /**
+     * 更新数据库中的封面字段
+     *
+     * @param appId   应用id
+     * @param ossPath 图片封面上传到阿里云oss后得到的可访问的url
+     */
+    public void updateCover(Long appId, String ossPath) {
+        App updateCover = new App();
+        updateCover.setId(appId);
+        updateCover.setCover(ossPath);
+        boolean updateCoverSuccess = updateById(updateCover);
+        if (!updateCoverSuccess) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "更新封面失败");
+        }
     }
 
     @Override

@@ -30,3 +30,15 @@ langchain4j:
       log-requests: true
       log-responses: true
       max-tokens: 8192
+
+# 阿里云OSS相关配置
+aliyun:
+  oss:
+    endpoint: https://oss-cn-hangzhou.aliyuncs.com
+    bucket-name: ai-zero-code-platform
+    domain: https://ai-zero-code-platform.oss-cn-hangzhou.aliyuncs.com
+    access-key-id: LTAI5t83gDFMcwKNbnFSVGeJ
+    access-key-secret: iDl1TWj94J80GMG3f7Gaw0dvtJ1OZ6
+    dir-prefix: screenshots/
+
+
