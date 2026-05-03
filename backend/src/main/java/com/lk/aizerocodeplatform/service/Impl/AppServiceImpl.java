@@ -5,6 +5,7 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.IORuntimeException;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import com.lk.aizerocodeplatform.ai.AiCodeGenTypeRoutingService;
 import com.lk.aizerocodeplatform.constant.AppConstant;
 import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
 import com.lk.aizerocodeplatform.core.AiCodeGenFacade;
@@ -68,6 +69,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private StreamHandlerExecutor streamHandlerExecutor;
     @Resource
     private OssUploadService ossUploadService;
+    @Resource
+    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
 
     @Override
     public Long addApp(AddAppDTO addAppDTO, HttpServletRequest request) {
@@ -78,10 +81,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         // 获取当前登录用户脱敏后的信息
         UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
         ThrowUtils.throwIf(currentUserLoginVo == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 调用ai服务，通过ai智能获取代码生成类型
+        CodeGenTypeEnum codeGenTypeEnum = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
         App app = new App();
         app.setInitPrompt(initPrompt);
-        // 代码生成类型暂时默认为Vue模式
-        app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
+        // 代码生成类型设置为ai返回的类型
+        app.setCodeGenType(codeGenTypeEnum.getValue());
         // 设置用户id
         app.setUserId(currentUserLoginVo.getId());
         // 应用名称暂时为 initPrompt 前 12 位

@@ -21,8 +21,8 @@ langchain4j:
       log-responses: true
       max-tokens: 8192
       # 配置模型输出json类型的数据
-      strict-json-schema: true
-      response-format: json_object
+#      strict-json-schema: true
+#      response-format: json_object
     streaming-chat-model: # 流式聊天模型（不支持结构化输出）
       api-key: sk-7ef8360fe7ee4cbabca95f0b0d631145
       base-url: https://api.deepseek.com
