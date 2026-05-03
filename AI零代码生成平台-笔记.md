@@ -4533,3 +4533,807 @@ public class StaticResourceController {
 ```
 
 # 七、功能扩展
+
+## 1、生成应用封面图
+
+### 第一步：创建截图工具类
+
+```java
+package com.lk.aizerocodeplatform.tools;
+
+import cn.hutool.core.img.ImgUtil;
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
+import lombok.extern.slf4j.Slf4j;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * 不依赖 WebDriver 的网页截图工具
+ * 原理：直接调用本机 Edge / Chrome 的无头截图能力
+ * @author LK
+ */
+@Slf4j
+public class WebScreenShotCmdUtils {
+
+    private static final int DEFAULT_WIDTH = 1600;
+    private static final int DEFAULT_HEIGHT = 900;
+    private static final long PROCESS_TIMEOUT_SECONDS = 30L;
+
+    /**
+     * 保存网页截图
+     *
+     * @param webUrl 网页地址
+     * @return 压缩后的截图路径，失败返回 null
+     */
+    public static String saveWebScreenShot(String webUrl) {
+        if (StrUtil.isBlank(webUrl)) {
+            log.error("网页地址不能为空");
+            return null;
+        }
+
+        String finalUrl = normalizeUrl(webUrl);
+
+        String browserPath = resolveBrowserPath();
+        if (StrUtil.isBlank(browserPath)) {
+            log.error("未找到可用的 Edge/Chrome 浏览器");
+            return null;
+        }
+
+        String rootPath = System.getProperty("user.dir")
+                + File.separator + "temp"
+                + File.separator + "webScreenShot"
+                + File.separator + UUID.randomUUID().toString().substring(0, 8);
+
+        FileUtil.mkdir(rootPath);
+
+        String pngPath = rootPath + File.separator + UUID.randomUUID() + ".png";
+        String jpgPath = rootPath + File.separator + UUID.randomUUID() + "_compress.jpg";
+        String userDataDir = rootPath + File.separator + "browser-profile";
+
+        try {
+            List<String> command = new ArrayList<>();
+            command.add(browserPath);
+            command.add("--headless=new");
+            command.add("--disable-gpu");
+            command.add("--hide-scrollbars");
+            command.add("--no-first-run");
+            command.add("--no-default-browser-check");
+            command.add("--disable-extensions");
+            command.add("--disable-dev-shm-usage");
+            command.add("--window-size=" + DEFAULT_WIDTH + "," + DEFAULT_HEIGHT);
+            command.add("--virtual-time-budget=10000");
+            command.add("--run-all-compositor-stages-before-draw");
+            command.add("--user-data-dir=" + userDataDir);
+            command.add("--screenshot=" + pngPath);
+            command.add(finalUrl);
+
+            ProcessBuilder processBuilder = new ProcessBuilder(command);
+            processBuilder.redirectErrorStream(true);
+
+            Process process = processBuilder.start();
+
+            String output;
+            try (InputStream inputStream = process.getInputStream();
+                 ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                inputStream.transferTo(baos);
+                output = baos.toString(StandardCharsets.UTF_8);
+            }
+
+            boolean finished = process.waitFor(PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                log.error("浏览器截图进程超时");
+                return null;
+            }
+
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                log.error("浏览器截图失败，exitCode={}, output={}", exitCode, output);
+                return null;
+            }
+
+            if (!FileUtil.exist(pngPath)) {
+                log.error("截图文件未生成，output={}", output);
+                return null;
+            }
+
+            ImgUtil.compress(new File(pngPath), new File(jpgPath), 0.3f);
+            FileUtil.del(pngPath);
+            FileUtil.del(userDataDir);
+
+            return jpgPath;
+        } catch (Exception e) {
+            log.error("网页截图失败", e);
+            return null;
+        }
+    }
+
+    /**
+     * 自动补全协议
+     */
+    private static String normalizeUrl(String webUrl) {
+        String url = webUrl.trim();
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            return url;
+        }
+        return "https://" + url;
+    }
+
+    /**
+     * 按常见安装路径查找浏览器
+     */
+    private static String resolveBrowserPath() {
+        List<String> candidates = List.of(
+                "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+                "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+                "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
+        );
+
+        for (String path : candidates) {
+            if (FileUtil.exist(path)) {
+                return path;
+            }
+        }
+        return null;
+    }
+}
+
+```
+
+### 第二步：引入阿里云OSS依赖
+
+```xml
+<!-- 引入阿里云OSS对象存储所需依赖 -->
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
+            <version>3.18.4</version>
+        </dependency>
+```
+
+### 第三步：配置application.yml文件
+
+```yaml
+# 阿里云OSS相关配置
+aliyun:
+  oss:
+    endpoint: https://oss-cn-hangzhou.aliyuncs.com
+    bucket-name: ai-zero-code-platform
+    domain: https://ai-zero-code-platform.oss-cn-hangzhou.aliyuncs.com
+    access-key-id: LTAI5t83gDFMcwKNbnFSVGeJ
+    access-key-secret: iDl1TWj94J80GMG3f7Gaw0dvtJ1OZ6
+    dir-prefix: screenshots/
+```
+
+### 第四步：编写阿里云OSS配置类
+
+```java
+package com.lk.aizerocodeplatform.config;
+
+
+import com.aliyun.oss.OSS;
+import com.aliyun.oss.OSSClientBuilder;
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/2 21:58
+ */
+@Configuration
+@ConfigurationProperties(prefix = "aliyun.oss")
+@Data
+public class OssConfig {
+
+    private String endpoint;
+    private String bucketName;
+    private String domain;
+    private String accessKeyId;
+    private String accessKeySecret;
+    private String dirPrefix;
+
+    @Bean(destroyMethod = "shutdown")
+    public OSS ossClient() {
+        return new OSSClientBuilder().build(endpoint, accessKeyId, accessKeySecret);
+    }
+
+    public String buildFileUrl(String objectKey) {
+        if (domain != null && !domain.isBlank()) {
+            return domain + "/" + objectKey;
+        }
+        return endpoint.replace("https://", "https://" + bucketName + ".")
+                .replace("http://", "http://" + bucketName + ".") + "/" + objectKey;
+    }
+}
+
+
+```
+
+### 第五步：编写阿里云OSS服务类
+
+```java
+package com.lk.aizerocodeplatform.service;
+
+import cn.hutool.core.date.DateUtil;
+import cn.hutool.core.util.IdUtil;
+import com.aliyun.oss.OSS;
+import com.aliyun.oss.model.ObjectMetadata;
+import com.lk.aizerocodeplatform.config.OssConfig;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/2 22:16
+ * 文件上传阿里云OSS服务
+ */
+@Service
+@RequiredArgsConstructor
+public class OssUploadService {
+
+    private final OSS ossClient;
+    private final OssConfig ossConfig;
+
+    public String uploadCompressedScreenshot(String localFilePath) {
+        File file = new File(localFilePath);
+        if (!file.exists()) {
+            throw new RuntimeException("截图文件不存在: " + localFilePath);
+        }
+
+        String datePath = DateUtil.today().replace("-", "/");
+        String objectKey = ossConfig.getDirPrefix()
+                + datePath + "/"
+                + IdUtil.fastSimpleUUID() + ".jpg";
+
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentType("image/jpeg");
+        metadata.setContentLength(file.length());
+
+        try (InputStream inputStream = new FileInputStream(file)) {
+            ossClient.putObject(ossConfig.getBucketName(), objectKey, inputStream, metadata);
+            return ossConfig.buildFileUrl(objectKey);
+        } catch (Exception e) {
+            throw new RuntimeException("上传 OSS 失败", e);
+        }
+    }
+}
+```
+
+### 第六步：修改部署逻辑
+
+```java
+ @Override
+    public String appDeploy(Long appId, UserLoginVO userLoginVO) {
+        // 校验参数
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        // 验证登录
+        ThrowUtils.throwIf(userLoginVO == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 查询应用信息
+        App app = getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        // 数据库如果没有deployKey，则生成随机的6位deployKey；如果有，则使用原来的deployKey
+        String deployKey = "";
+        if (StrUtil.isBlank(app.getDeployKey())) {
+            deployKey = RandomUtil.randomString(6);
+        } else {
+            deployKey = app.getDeployKey();
+        }
+        // 拿到代码生成类型
+        String codeGenType = app.getCodeGenType();
+        // 将该应用生成的代码文件夹从code_output复制到code_deploy目录下
+        String sourceDir;
+        if ("vue_project".equals(codeGenType)) {
+            sourceDir = CodeFileSaveConstant.ROOT_PATH
+                    + File.separator
+                    + "vue_project_" + appId
+                    + File.separator
+                    + "dist";
+        } else {
+            sourceDir = CodeFileSaveConstant.ROOT_PATH
+                    + File.separator
+                    + appId + "_" + codeGenType;
+        }
+        File sourcePath = new File(sourceDir);
+        if (!sourcePath.exists()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        String targetDir = CodeFileSaveConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
+        try {
+            FileUtil.copyContent(sourcePath, new File(targetDir), true);
+        } catch (IORuntimeException e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "部署失败");
+        }
+        // 更新数据库
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setDeployKey(deployKey);
+        updateApp.setEditTime(LocalDateTime.now());
+        updateApp.setDeployedTime(LocalDateTime.now());
+        boolean success = updateById(updateApp);
+        if (!success) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "部署失败，请稍后再试");
+        }
+        // 得到部署后的网站地址url
+        String deployUrl = CodeFileSaveConstant.CODE_DEPLOY_HOST + "/" + deployKey;
+        // 异步执行网站截图、网站截图上传oss、更新数据库
+        updateCoverAsync(appId, deployUrl);
+        return deployUrl;
+    }
+
+    /**
+     * 异步执行网站截图、网站截图上传oss、更新数据库
+     *
+     * @param appId     应用id
+     * @param deployUrl 部署应用后得到的url
+     */
+    public void updateCoverAsync(Long appId, String deployUrl) {
+        Thread.startVirtualThread(() -> {
+            // 网站截图
+            String imgPath = WebScreenShotCmdUtils.saveWebScreenShot(deployUrl);
+            try {
+                // 将网站截图上传到阿里云oss
+                String ossPath = ossUploadService.uploadCompressedScreenshot(imgPath);
+                // 将保存后的阿里云oss路径保存到数据库中的封面字段
+                updateCover(appId, ossPath);
+            } catch (Exception e) {
+                log.error("异步执行网站截图、网站截图上传oss、更新数据库失败：{}", e.getMessage());
+            } finally {
+                // 清理temp中的截图文件，防止过度堆积
+                FileUtil.del(imgPath);
+            }
+        });
+    }
+
+    /**
+     * 更新数据库中的封面字段
+     *
+     * @param appId   应用id
+     * @param ossPath 图片封面上传到阿里云oss后得到的可访问的url
+     */
+    public void updateCover(Long appId, String ossPath) {
+        App updateCover = new App();
+        updateCover.setId(appId);
+        updateCover.setCover(ossPath);
+        boolean updateCoverSuccess = updateById(updateCover);
+        if (!updateCoverSuccess) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "更新封面失败");
+        }
+    }
+```
+
+### 第七步：设置定时任务类
+
+> 定时清除本地temp文件夹下的截图临时文件
+>
+> 注意：定时任务类必须要交给spring管理才能生效！！！
+
+```java
+package com.lk.aizerocodeplatform.task;
+
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.io.IORuntimeException;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+
+import java.io.File;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/3 01:22
+ * 定时删除temp文件夹下的截图临时文件夹
+ */
+@Slf4j
+@EnableScheduling
+@Configuration
+public class DeleteWebScreenShotTempFile {
+    private static final String ROOT_DIR = System.getProperty("user.dir") + File.separator
+            + "temp" + File.separator + "webScreenShot";
+
+    @Scheduled(cron = "0 0 2 * * *")
+    public void cleanUpScreenShotDir() {
+        log.info("开始定时清理过期的临时截图文件夹");
+        File file = new File(ROOT_DIR);
+        if (file.exists()) {
+            try {
+                FileUtil.del(file);
+            } catch (IORuntimeException e) {
+                log.error("定时清理过期的临时截图文件失败：{}", e.getMessage());
+            }
+        }
+    }
+}
+```
+
+## 2、下载源码压缩包
+
+### 第一步：编写下载源码压缩包的服务
+
+```java
+package com.lk.aizerocodeplatform.service;
+
+import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import jakarta.servlet.http.HttpServletResponse;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/3 16:26
+ * 代码下载服务
+ */
+public interface CodeDownloadService {
+    /**
+     * 下载应用源码压缩包
+     * 会自动排除 dist、node_modules 等目录
+     *
+     * @param appId       应用 id
+     * @param userLoginVO 当前登录用户
+     * @param response    响应对象
+     */
+    void downloadAppCodeZip(Long appId, UserLoginVO userLoginVO, HttpServletResponse response);
+}
+```
+
+```java
+package com.lk.aizerocodeplatform.service.Impl;
+
+import cn.hutool.core.util.StrUtil;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import com.lk.aizerocodeplatform.exception.ErrorCode;
+import com.lk.aizerocodeplatform.exception.ThrowUtils;
+import com.lk.aizerocodeplatform.model.entity.App;
+import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import com.lk.aizerocodeplatform.service.AppService;
+import com.lk.aizerocodeplatform.service.CodeDownloadService;
+import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.catalina.connector.ClientAbortException;
+import org.springframework.stereotype.Service;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+
+/**
+ * @Author lk
+ * @Version 1.0
+ * @ Date 2026/5/3 16:27
+ */
+@Service
+@Slf4j
+public class CodeDownloadServiceImpl implements CodeDownloadService {
+
+    /**
+     * 需要排除的目录
+     */
+    private static final Set<String> EXCLUDED_DIR_NAMES = Set.of(
+            "dist",
+            "node_modules",
+            ".git",
+            ".idea",
+            ".vscode"
+    );
+
+    /**
+     * 需要排除的文件
+     */
+    private static final Set<String> EXCLUDED_FILE_NAMES = Set.of(
+            ".DS_Store"
+    );
+
+    @Resource
+    private AppService appService;
+
+    @Override
+    public void downloadAppCodeZip(Long appId, UserLoginVO userLoginVO, HttpServletResponse response) {
+        ThrowUtils.throwIf(appId == null, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(userLoginVO == null, ErrorCode.NOT_LOGIN_ERROR);
+
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        ThrowUtils.throwIf(!userLoginVO.getId().equals(app.getUserId()), ErrorCode.NO_AUTH_ERROR);
+
+        File sourceDir = getSourceDir(app);
+        ThrowUtils.throwIf(!sourceDir.exists() || !sourceDir.isDirectory(), ErrorCode.NOT_FOUND_ERROR, "源码目录不存在");
+
+        String zipRootDirName = buildZipRootDirName(app);
+        String zipFileName = zipRootDirName + ".zip";
+        prepareResponse(response, zipFileName);
+
+        try (ZipOutputStream zipOutputStream = new ZipOutputStream(response.getOutputStream(), StandardCharsets.UTF_8)) {
+            zipDirectory(sourceDir.toPath(), sourceDir.toPath(), zipRootDirName, zipOutputStream);
+            zipOutputStream.finish();
+        } catch (AsyncRequestNotUsableException | ClientAbortException e) {
+            log.warn("client aborted zip download, appId={}, sourceDir={}", appId, sourceDir.getAbsolutePath());
+        } catch (IOException e) {
+            log.error("download zip failed, appId={}, sourceDir={}", appId, sourceDir.getAbsolutePath(), e);
+            handleStreamException(response);
+        }
+    }
+
+    /**
+     * 获取源码目录
+     * vue_project 下载整个源码工程，但会排除 dist、node_modules
+     */
+    private File getSourceDir(App app) {
+        String codeGenType = app.getCodeGenType();
+        String sourceDir;
+
+        if ("vue_project".equals(codeGenType)) {
+            sourceDir = CodeFileSaveConstant.ROOT_PATH
+                    + File.separator
+                    + "vue_project_" + app.getId();
+        } else {
+            sourceDir = CodeFileSaveConstant.ROOT_PATH
+                    + File.separator
+                    + app.getId() + "_" + codeGenType;
+        }
+        return new File(sourceDir);
+    }
+
+    /**
+     * 设置下载响应头
+     */
+    private void prepareResponse(HttpServletResponse response, String zipFileName) {
+        String encodedFileName = URLEncoder.encode(zipFileName, StandardCharsets.UTF_8)
+                .replaceAll("\\+", "%20");
+        response.reset();
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setContentType("application/zip");
+        response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + encodedFileName);
+        response.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
+    }
+
+    /**
+     * 递归压缩目录
+     */
+    private void zipDirectory(Path currentPath,
+                              Path sourceRoot,
+                              String zipRootDirName,
+                              ZipOutputStream zipOutputStream) throws IOException {
+
+        if (Files.isSymbolicLink(currentPath)) {
+            return;
+        }
+
+        String currentName = currentPath.getFileName() == null ? "" : currentPath.getFileName().toString();
+
+        if (Files.isDirectory(currentPath)) {
+            if (EXCLUDED_DIR_NAMES.contains(currentName)) {
+                return;
+            }
+
+            try (DirectoryStream<Path> children = Files.newDirectoryStream(currentPath)) {
+                boolean emptyDir = true;
+                for (Path child : children) {
+                    emptyDir = false;
+                    zipDirectory(child, sourceRoot, zipRootDirName, zipOutputStream);
+                }
+
+                if (emptyDir && !currentPath.equals(sourceRoot)) {
+                    String relativePath = sourceRoot.relativize(currentPath).toString().replace("\\", "/");
+                    ZipEntry zipEntry = new ZipEntry(zipRootDirName + "/" + relativePath + "/");
+                    zipOutputStream.putNextEntry(zipEntry);
+                    zipOutputStream.closeEntry();
+                }
+            }
+            return;
+        }
+
+        if (EXCLUDED_FILE_NAMES.contains(currentName)) {
+            return;
+        }
+
+        String relativePath = sourceRoot.relativize(currentPath).toString().replace("\\", "/");
+        ZipEntry zipEntry = new ZipEntry(zipRootDirName + "/" + relativePath);
+        zipOutputStream.putNextEntry(zipEntry);
+        Files.copy(currentPath, zipOutputStream);
+        zipOutputStream.closeEntry();
+    }
+
+    /**
+     * 生成压缩包根目录名称
+     */
+    private String buildZipRootDirName(App app) {
+        return sanitizeFileName(app.getId().toString()) + "-" + app.getCodeGenType();
+    }
+
+    /**
+     * 清理非法文件名字符
+     */
+    private String sanitizeFileName(String fileName) {
+        return fileName.replaceAll("[\\\\/:*?\"<>|]", "_");
+    }
+
+    /**
+     * 下载流已开始输出后，不能再走统一 JSON 异常返回。
+     */
+    private void handleStreamException(HttpServletResponse response) {
+        if (response.isCommitted()) {
+            return;
+        }
+        try {
+            response.reset();
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "下载代码压缩包失败");
+        } catch (IOException e) {
+            log.error("failed to send download error response", e);
+        }
+    }
+}
+```
+
+### 第二步：编写接口
+
+```java
+@Operation(summary = "下载应用源码压缩包")
+@GetMapping("/downloadCode")
+public void downloadCode(@RequestParam Long appId,
+                         HttpServletRequest request,
+                         jakarta.servlet.http.HttpServletResponse response) {
+    UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+    codeDownloadService.downloadAppCodeZip(appId, currentUserLoginVo, response);
+}
+```
+
+## 3、AI智能选择代码生成类型
+
+### 第一步：编写提示词prompt
+
+```tex
+你是一个专业的代码生成方案路由器，需要根据用户需求返回最合适的代码生成类型。
+
+可选的代码生成类型：
+1. HTML - 适合简单的静态页面，单个 HTML 文件，包含内联 CSS 和 JS
+2. MULTI_FILE - 适合简单的多文件静态页面，分离 HTML、CSS、JS 代码
+3. VUE_PROJECT - 适合复杂的现代化前端项目
+
+判断规则：
+- 如果用户需求简单，只需要一个展示页面，选择 HTML
+- 如果用户需要多个页面但不涉及复杂交互，选择 MULTI_FILE
+- 如果用户需求复杂，涉及多页面、复杂交互、数据管理等，选择 VUE_PROJECT
+
+```
+
+### 第二步：编写AI服务接口
+
+```java
+package com.lk.aizerocodeplatform.ai;
+
+import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
+import dev.langchain4j.service.SystemMessage;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/3 17:47
+ * AI代码生成类型路由服务
+ */
+public interface AiCodeGenTypeRoutingService {
+    @SystemMessage(fromResource = "prompts/code_type_routing_prompt.txt")
+    CodeGenTypeEnum routeCodeGenType(String userPrompt);
+}
+
+```
+
+### 第三步：编写AI服务接口工厂
+
+```java
+package com.lk.aizerocodeplatform.ai;
+
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.service.AiServices;
+import jakarta.annotation.Resource;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/3 17:49
+ * ai代码生成类型路由服务工厂
+ */
+@Configuration
+public class AiCodeGenTypeRoutingServiceFactory {
+    @Resource
+    private ChatModel chatModel;
+
+    @Bean
+    public AiCodeGenTypeRoutingService genTypeRoutingService() {
+        return AiServices.builder(AiCodeGenTypeRoutingService.class)
+                .chatModel(chatModel)
+                .build();
+    }
+}
+
+```
+
+### 第四步：创建应用时调用AI服务
+
+```java
+@Resource
+    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
+
+    @Override
+    public Long addApp(AddAppDTO addAppDTO, HttpServletRequest request) {
+        ThrowUtils.throwIf(addAppDTO == null, ErrorCode.PARAMS_ERROR);
+        // 获取用户初始化的提示词
+        String initPrompt = addAppDTO.getInitPrompt();
+        ThrowUtils.throwIf(initPrompt == null, ErrorCode.PARAMS_ERROR, "用户初始化提示词为空");
+        // 获取当前登录用户脱敏后的信息
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        ThrowUtils.throwIf(currentUserLoginVo == null, ErrorCode.NOT_LOGIN_ERROR);
+        // 调用ai服务，通过ai智能获取代码生成类型
+        CodeGenTypeEnum codeGenTypeEnum = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
+        App app = new App();
+        app.setInitPrompt(initPrompt);
+        // 代码生成类型设置为ai返回的类型
+        app.setCodeGenType(codeGenTypeEnum.getValue());
+        // 设置用户id
+        app.setUserId(currentUserLoginVo.getId());
+        // 应用名称暂时为 initPrompt 前 12 位
+        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
+        app.setCover(" https://picsum.photos/320/180?t=" + RandomUtil.randomNumbers(6));
+        boolean success = save(app);
+        if (!success) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用增加失败");
+        }
+        return app.getId();
+    }
+```
+
+### 注意
+
+```yaml
+langchain4j:
+  open-ai:
+    chat-model: # 普通聊天模型
+      api-key: sk-7ef8360fe7ee4cbabca95f0b0d631145
+      base-url: https://api.deepseek.com
+      model-name: deepseek-chat
+      log-requests: true
+      log-responses: true
+      max-tokens: 8192
+      # 配置模型输出json类型的数据
+#      strict-json-schema: true
+#      response-format: json_object
+    streaming-chat-model: # 流式聊天模型（不支持结构化输出）
+      api-key: sk-7ef8360fe7ee4cbabca95f0b0d631145
+      base-url: https://api.deepseek.com
+      model-name: deepseek-chat
+      log-requests: true
+      log-responses: true
+      max-tokens: 8192
+```
+
+> 注释掉json类型数据的配置，否则会报错！！！
+
+# 八、可视化修改
+
