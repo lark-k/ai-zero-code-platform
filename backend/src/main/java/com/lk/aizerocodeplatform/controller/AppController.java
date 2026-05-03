@@ -7,6 +7,7 @@ import com.lk.aizerocodeplatform.constant.UserConstant;
 import com.lk.aizerocodeplatform.model.dto.app.*;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import com.lk.aizerocodeplatform.service.CodeDownloadService;
 import com.lk.aizerocodeplatform.service.UserService;
 import com.mybatisflex.core.paginate.Page;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,6 +36,8 @@ public class AppController {
     private AppService appService;
     @Resource
     private UserService userService;
+    @Resource
+    private CodeDownloadService codeDownloadService;
 
     @Operation(summary = "增加应用")
     @PostMapping("/addApp")
@@ -135,4 +138,14 @@ public class AppController {
         UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
         return ResultUtils.success(appService.cancelDeploy(appId, currentUserLoginVo));
     }
+
+    @Operation(summary = "下载应用源码压缩包")
+    @GetMapping("/downloadCode")
+    public void downloadCode(@RequestParam Long appId,
+                             HttpServletRequest request,
+                             jakarta.servlet.http.HttpServletResponse response) {
+        UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
+        codeDownloadService.downloadAppCodeZip(appId, currentUserLoginVo, response);
+    }
+
 }

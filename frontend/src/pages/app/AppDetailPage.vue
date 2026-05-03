@@ -16,6 +16,7 @@ const app = ref<API.AppVO>()
 const loading = ref(false)
 const deploying = ref(false)
 const canceling = ref(false)
+const downloading = ref(false)
 
 const appId = computed(() => String(route.params.id || ''))
 const previewUrl = computed(() => `${API_BASE_URL}/static/${appId.value}?t=${Date.now()}`)
@@ -103,6 +104,31 @@ const cancelDeployApp = async () => {
   }
 }
 
+const downloadSourceCode = async () => {
+  if (!canManage.value) {
+    message.warning('只有应用作者或管理员可以下载源码')
+    return
+  }
+
+  if (!appId.value) {
+    return
+  }
+
+  downloading.value = true
+  try {
+    const link = document.createElement('a')
+    link.href = `${API_BASE_URL}/app/downloadCode?appId=${encodeURIComponent(appId.value)}`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    message.success('源码压缩包开始下载')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '下载源码失败，请稍后重试')
+  } finally {
+    downloading.value = false
+  }
+}
+
 const goToFeaturedApply = () => {
   void router.push({
     path: '/app/featured/apply',
@@ -142,6 +168,9 @@ onMounted(() => {
           <a-button v-if="isOwner" @click="goToFeaturedApply">申请精选</a-button>
           <a-button v-if="loginUserStore.isAdmin" @click="goToFeaturedReview">审核申请</a-button>
           <a-button v-if="canManage" @click="router.push(`/app/edit/${appId}`)">编辑信息</a-button>
+          <a-button v-if="canManage" :loading="downloading" @click="downloadSourceCode">
+            下载源码
+          </a-button>
           <a-popconfirm
             v-if="canManage && isDeployed"
             title="确定取消部署该应用吗？"

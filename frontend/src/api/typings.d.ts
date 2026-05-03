@@ -190,6 +190,10 @@ declare namespace API {
     appId: number
   }
 
+  type downloadAppCodeParams = {
+    appId: number
+  }
+
   type DeleteAppDTO = {
     id?: number
   }
