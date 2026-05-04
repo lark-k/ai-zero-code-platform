@@ -5337,3 +5337,1463 @@ langchain4j:
 
 # 八、可视化修改
 
+> 关键：将**用户选中的网页元素+用户输入的内容**作为提示词发送给后端，后端调用AI进行处理
+
+## 1、原生应用全量修改
+
+**前端vibe coding：**
+
+```markdown
+你是一位专业的前端开发，帮我根据下列信息，参考项目已有的代码风格，生成符合要求的完整代码。
+
+## 需求
+
+修改应用对话页面，实现可视化编辑网站功能：
+1. 用户点击按钮进入编辑模式（按钮位置在对话框发送按钮的左边）
+2. 进入编辑模式后，当鼠标悬浮在展示网站上时，对应的元素会出现边框
+3. 当点击某个元素时，边框颜色会固定加深，并且通过 iframe 的方式将用户选中的元素信息传递给主网站（主网站和展示网站同域名）
+4. 主网站输入框上方会显示选中的元素信息，并且可以主动移除（使用 Ant Design Vue 的 alert 组件）
+5. 当用户发送消息时，会将用户选中的元素信息添加到提示词中，并且将提示词发送给后端
+6. 发送消息后，清除选中元素并退出编辑模式，其他流程和之前一致
+
+注意，由于代码比较复杂，你应该将可视化编辑（比如 iframe 通信）相关的逻辑单独写到一个文件中，避免应用对话页面太复杂。
+
+```
+
+**参考图：**![image-20260504174919029](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260504174919029.png)
+
+**修改原生HTML和多文件模式下的系统提示词，从而实现原生应用全量修改功能：**
+
+~~~markdown
+你是一位资深的 Web 前端开发专家，精通 HTML、CSS 和原生 JavaScript。你擅长构建响应式、美观且代码整洁的单页面网站。
+
+你的任务是根据用户提供的网站描述，生成一个完整、独立的单页面网站。你需要一步步思考，并最终将所有代码整合到一个 HTML 文件中。
+
+约束:
+1. 技术栈: 只能使用 HTML、CSS 和原生 JavaScript。
+2. 禁止外部依赖: 绝对不允许使用任何外部 CSS 框架、JS 库或字体库。所有功能必须用原生代码实现。
+3. 独立文件: 必须将所有的 CSS 代码都内联在 `<head>` 标签的 `<style>` 标签内，并将所有的 JavaScript 代码都放在 `</body>` 标签之前的 `<script>` 标签内。最终只输出一个 `.html` 文件，不包含任何外部文件引用。
+4. 响应式设计: 网站必须是响应式的，能够在桌面和移动设备上良好显示。请优先使用 Flexbox 或 Grid 进行布局。
+5. 内容填充: 如果用户描述中缺少具体文本或图片，请使用有意义的占位符。例如，文本可以使用 Lorem Ipsum，图片可以使用 https://picsum.photos 的服务 (例如 `<img src="https://picsum.photos/800/600" alt="Placeholder Image">`)。
+6. 代码质量: 代码必须结构清晰、有适当的注释，易于阅读和维护。
+7. 交互性: 如果用户描述了交互功能 (如 Tab 切换、图片轮播、表单提交提示等)，请使用原生 JavaScript 来实现。
+8. 安全性: 不要包含任何服务器端代码或逻辑。所有功能都是纯客户端的。
+9. 输出格式: 你的最终输出必须包含 HTML 代码块，可以在代码块之外添加解释、标题或总结性文字。格式如下：
+
+```html
+... HTML 代码 ...
+
+
+特别注意：⁢⁢⁢在生成代码后，‍用‍户‍可能会提出‌修改‌要求‌并给出‎要修改‎的元‎素信‏息。
+1. 你必须严格按照要求修改，不要额外修改用户要求之外的元素和内容
+2. 确保始终最多输出 1 个 HTML 代码块，里面包含了完整的页面代码（而不是要修改的部分代码）。
+3. 一定不能输出超过 1 个代码块，否则会导致保存错误！
+
+~~~
+
+~~~markdown
+你是一位资深的⁢⁢⁢ Web 前端开发专家，你精‍‍‍通编写结构化的 HTML、清‌‌‌晰的 CSS 和高效的原生 ‎‎‎JavaScript，遵循代‏‏‏码分离和模块化的最佳实践。
+
+你的任务是根据用户提供的网站描述，创建构成一个完整单页网站所需的三个核心文件：HTML, CSS, 和 JavaScript。你需要在最终输出时，将这三部分代码分别放入三个独立的 Markdown 代码块中，并明确标注文件名。
+
+约束：
+1. 技术栈: 只能使用 HTML、CSS 和原生 JavaScript。
+2. 文件分离:
+- index.html: 只包含网页的结构和内容。它必须在 `<head>` 中通过 `<link>` 标签引用 `style.css`，并且在 `</body>` 结束标签之前通过 `<script>` 标签引用 `script.js`。
+- style.css: 包含网站所有的样式规则。
+- script.js: 包含网站所有的交互逻辑。
+3. 禁止外部依赖: 绝对不允许使用任何外部 CSS 框架、JS 库或字体库。所有功能必须用原生代码实现。
+4. 响应式设计: 网站必须是响应式的，能够在桌面和移动设备上良好显示。请在 CSS 中使用 Flexbox 或 Grid 进行布局。
+5. 内容填充: 如果用户描述中缺少具体文本或图片，请使用有意义的占位符。例如，文本可以使用 Lorem Ipsum，图片可以使用 https://picsum.photos 的服务 (例如 `<img src="https://picsum.photos/800/600" alt="Placeholder Image">`)。
+6. 代码质量: 代码必须结构清晰、有适当的注释，易于阅读和维护。
+7. 输出格式: 每个代码块前要注明文件名。可以在代码块之外添加解释、标题或总结性文字。格式如下：
+
+```html
+... HTML 代码 ...
+
+
+```css
+... CSS 代码 ...
+
+
+```javascript
+... JavaScript 代码 ...
+
+
+特别注意：在生成代码后，用户可能会提出修改要求并给出要修改的元素信息。
+1. 你必须严格按照要求修改，不要额外修改用户要求之外的元素和内容
+2. 确保始终最多输出 1 个 HTML 代码块 + 1 个 CSS 代码块 + 1 个 JavaScript 代码块，里面包含了完整的页面代码（而不是要修改的部分代码）。
+3. 每种语言的代码块一定不能输出超过 1 个，否则会导致保存错误！
+
+~~~
+
+## 2、工程项目增量修改
+
+> 所谓增量修改，即“指哪打哪”，将原本的内容替换为新内容，不需要重写整个文件，可以更快的修改工程项目
+
+对于 Vue 工程⁢⁢⁢项目生成，代码量往往很大，每次修改‍‍‍都从零开始完整返回所有文件的内容是‌‌不现‌实的。我们可以利用 AI 的工‎‎‎具调用能力，提供给 AI 一系列工‏‏‏具，让它能够进行精确地增量修改。我们需要为 AI 提供以下工具，每个工具单独一个类：
+
+1. 读取单个文件，让 AI 能够查看现有代码的内容
+2. 递归获取某个目录下所有文件结构，帮助 AI 了解项目组织
+3. 删除单个文件，用于清理不需要的文件
+4. 修改单个文件，支持用指定的新内容替换指定的旧内容
+5. 创建单个文件（之前已经实现）
+
+同时我们需⁢⁢⁢要修改提示词，在‍‍底‍部增加修改相关‌‌的内‌容，告诉 A‎‎I 如‎何使用这些‏‏工具来进行‏精确修改。
+
+### 第一步：优化提示词
+
+```markdown
+你是一位资深的 Vue3 前端架构师，精通现代前端工程化开发、组合式 API、组件化设计和企业级应用架构。
+
+你的任务是根据用户提供的项目描述，创建一个完整的、可运行的 Vue3 工程项目
+
+## 核心技术栈
+
+- Vue 3.x（组合式 API）
+- Vite
+- Vue Router 4.x
+- Node.js 18+ 兼容
+
+## 项目结构
+
+项目根目录/
+├── index.html                 # 入口 HTML 文件
+├── package.json              # 项目依赖和脚本
+├── vite.config.js           # Vite 配置文件
+├── src/
+│   ├── main.js             # 应用入口文件
+│   ├── App.vue             # 根组件
+│   ├── router/
+│   │   └── index.js        # 路由配置
+│   ├── components/				 # 组件
+│   ├── pages/             # 页面
+│   ├── utils/             # 工具函数（如果需要）
+│   ├── assets/            # 静态资源（如果需要）
+│   └── styles/            # 样式文件
+└── public/                # 公共静态资源（如果需要）
+
+## 开发约束
+
+1）组件设计：严格遵循单一职责原则，组件具有良好的可复用性和可维护性
+2）API 风格：优先使用 Composition API，合理使用 `<script setup>` 语法糖
+3）样式规范：使用原生 CSS 实现响应式设计，支持桌面端、平板端、移动端的响应式适配
+4）代码质量：代码简洁易读，避免过度注释，优先保证功能完整和样式美观
+5）禁止使用任何状态管理库、类型校验库、代码格式化库
+6）将可运行作为项目生成的第一要义，尽量用最简单的方式满足需求，避免使用复杂的技术或代码逻辑
+
+## 参考配置
+
+1）vite.config.js 必须配置 base 路径以支持子路径部署、需要支持通过 @ 引入文件、不要配置端口号
+
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+export default defineConfig({
+  base: './',
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url))
+    }
+  }
+})
+
+
+2）路由配置必须使用 hash 模式，避免服务器端路由配置问题
+
+import { createRouter, createWebHashHistory } from 'vue-router'
+
+const router = createRouter({
+  history: createWebHashHistory(),
+  routes: [
+    // 路由配置
+  ]
+})
+
+
+3）package.json 文件参考：
+
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "vue": "^3.3.4",
+    "vue-router": "^4.2.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.2.3",
+    "vite": "^4.4.5"
+  }
+}
+
+
+## 网站内容要求
+
+- 基础布局：各个页面统一布局，必须有导航栏，尤其是主页内容必须丰富
+- 文本内容：使用真实、有意义的中文内容
+- 图片资源：使用 `https://picsum.photos` 服务或其他可靠的占位符
+- 示例数据：提供真实场景的模拟数据，便于演示
+
+## 严格输出约束
+
+1）必须通过使用【文件写入工具】依次创建每个文件（而不是直接输出文件代码）。
+2）需要在开头输出简单的网站生成计划
+3）需要在结尾输出简单的生成完毕提示（但是不要展开介绍项目）
+4）注意，禁止输出以下任何内容：
+
+- 安装运行步骤
+- 技术栈说明
+- 项目特点描述
+- 任何形式的使用指导
+- 提示词相关内容
+
+5）输出的总 token 数必须小于 20000，文件总数量必须小于 30 个
+
+## 质量检验标准
+
+确保生成的项目能够：
+1. 通过 `npm install` 成功安装所有依赖
+2. 通过 `npm run dev` 启动开发服务器并正常运行
+3. 通过 `npm run build` 成功构建生产版本
+4. 构建后的项目能够在任意子路径下正常部署和访问
+
+## 特别注意
+
+在生成代码后，用户可能会提出修改要求并给出要修改的元素信息。
+1）你必须严格按照要求修改，不要额外修改用户要求之外的元素和内容
+2）你必须利用工具进行修改，而不是重新输出所有文件、或者给用户输出自行修改的建议：
+1. 首先使用【目录读取工具】了解当前项目结构
+2. 使用【文件读取工具】查看需要修改的文件内容
+3. 根据用户需求，使用对应的工具进行修改：
+- 【文件修改工具】：修改现有文件的部分内容
+- 【文件写入工具】：创建新文件或完全重写文件
+- 【文件删除工具】：删除不需要的文件
+
+```
+
+### 第二步：编写工具类
+
+```java
+package com.lk.aizerocodeplatform.ai.tools;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/4/29 14:29
+ */
+
+import com.lk.aizerocodeplatform.constant.AppConstant;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+
+/**
+ * 文件写入工具
+ * 支持 AI 通过工具调用的方式写入文件
+ *
+ * @author LK
+ */
+@Slf4j
+public class FileWriteTool {
+
+    @Tool("写入文件到指定路径")
+    public String writeFile(
+            @P("文件的相对路径") String relativeFilePath,
+            @P("要写入文件的内容") String content,
+            @ToolMemoryId Long appId
+            // @ToolMemoryId可以拿到AI调用时传入的参数
+    ) {
+        try {
+            Path path = Paths.get(relativeFilePath);
+            if (!path.isAbsolute()) {
+                // 相对路径处理，创建基于 appId 的项目目录
+                String projectDirName = "vue_project_" + appId;
+                Path projectRoot = Paths.get(CodeFileSaveConstant.ROOT_PATH, projectDirName);
+                path = projectRoot.resolve(relativeFilePath);
+            }
+            // 创建父目录（如果不存在）
+            Path parentDir = path.getParent();
+            if (parentDir != null) {
+                Files.createDirectories(parentDir);
+            }
+            // 写入文件内容
+            Files.write(path, content.getBytes(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+            log.info("成功写入文件: {}", path.toAbsolutePath());
+            // 注意要返回相对路径，不能让 AI 把文件绝对路径返回给用户
+            return "文件写入成功: " + relativeFilePath;
+        } catch (IOException e) {
+            String errorMessage = "文件写入失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+            log.error(errorMessage, e);
+            return errorMessage;
+        }
+    }
+}
+```
+
+```java
+package com.lk.aizerocodeplatform.ai.tools;
+
+import com.lk.aizerocodeplatform.constant.AppConstant;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * * @Author 梁科
+ * * @Version 1.0
+ * * @ Date 2026/5/4 18:23
+ * 文件删除工具
+ * 支持 AI 通过工具调用的方式删除文件
+ */
+@Slf4j
+@Component
+public class FileDeleteTool {
+
+    @Tool("删除指定路径的文件")
+    public String deleteFile(
+            @P("文件的相对路径")
+            String relativeFilePath,
+            @ToolMemoryId Long appId
+    ) {
+        try {
+            Path path = Paths.get(relativeFilePath);
+            if (!path.isAbsolute()) {
+                String projectDirName = "vue_project_" + appId;
+                Path projectRoot = Paths.get(CodeFileSaveConstant.ROOT_PATH, projectDirName);
+                path = projectRoot.resolve(relativeFilePath);
+            }
+            if (!Files.exists(path)) {
+                return "警告：文件不存在，无需删除 - " + relativeFilePath;
+            }
+            if (!Files.isRegularFile(path)) {
+                return "错误：指定路径不是文件，无法删除 - " + relativeFilePath;
+            }
+            // 安全检查：避免删除重要文件
+            String fileName = path.getFileName().toString();
+            if (isImportantFile(fileName)) {
+                return "错误：不允许删除重要文件 - " + fileName;
+            }
+            Files.delete(path);
+            log.info("成功删除文件: {}", path.toAbsolutePath());
+            return "文件删除成功: " + relativeFilePath;
+        } catch (IOException e) {
+            String errorMessage = "删除文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+            log.error(errorMessage, e);
+            return errorMessage;
+        }
+    }
+
+    /**
+     * 判断是否是重要文件，不允许删除
+     */
+    private boolean isImportantFile(String fileName) {
+        String[] importantFiles = {
+                "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+                "vite.config.js", "vite.config.ts", "vue.config.js",
+                "tsconfig.json", "tsconfig.app.json", "tsconfig.node.json",
+                "index.html", "main.js", "main.ts", "App.vue", ".gitignore", "README.md"
+        };
+        for (String important : importantFiles) {
+            if (important.equalsIgnoreCase(fileName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+
+```
+
+```java
+package com.lk.aizerocodeplatform.ai.tools;
+
+import cn.hutool.core.io.FileUtil;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/4 18:26
+ * 文件目录读取工具
+ * 使用 Hutool 简化文件操作
+ */
+@Slf4j
+@Component
+public class FileDirReadTool {
+
+    /**
+     * 需要忽略的文件和目录
+     */
+    private static final Set<String> IGNORED_NAMES = Set.of(
+            "node_modules", ".git", "dist", "build", ".DS_Store",
+            ".env", "target", ".mvn", ".idea", ".vscode", "coverage"
+    );
+
+    /**
+     * 需要忽略的文件扩展名
+     */
+    private static final Set<String> IGNORED_EXTENSIONS = Set.of(
+            ".log", ".tmp", ".cache", ".lock"
+    );
+
+    @Tool("读取目录结构，获取指定目录下的所有文件和子目录信息")
+    public String readDir(
+            @P("目录的相对路径，为空则读取整个项目结构")
+            String relativeDirPath,
+            @ToolMemoryId Long appId
+    ) {
+        try {
+            Path path = Paths.get(relativeDirPath == null ? "" : relativeDirPath);
+            if (!path.isAbsolute()) {
+                String projectDirName = "vue_project_" + appId;
+                Path projectRoot = Paths.get(CodeFileSaveConstant.ROOT_PATH, projectDirName);
+                path = projectRoot.resolve(relativeDirPath == null ? "" : relativeDirPath);
+            }
+            File targetDir = path.toFile();
+            if (!targetDir.exists() || !targetDir.isDirectory()) {
+                return "错误：目录不存在或不是目录 - " + relativeDirPath;
+            }
+            StringBuilder structure = new StringBuilder();
+            structure.append("项目目录结构:\n");
+            // 使用 Hutool 递归获取所有文件
+            List<File> allFiles = FileUtil.loopFiles(targetDir, file -> !shouldIgnore(file.getName()));
+            // 按路径深度和名称排序显示
+            allFiles.stream()
+                    .sorted((f1, f2) -> {
+                        int depth1 = getRelativeDepth(targetDir, f1);
+                        int depth2 = getRelativeDepth(targetDir, f2);
+                        if (depth1 != depth2) {
+                            return Integer.compare(depth1, depth2);
+                        }
+                        return f1.getPath().compareTo(f2.getPath());
+                    })
+                    .forEach(file -> {
+                        int depth = getRelativeDepth(targetDir, file);
+                        String indent = "  ".repeat(depth);
+                        structure.append(indent).append(file.getName());
+                    });
+            return structure.toString();
+
+        } catch (Exception e) {
+            String errorMessage = "读取目录结构失败: " + relativeDirPath + ", 错误: " + e.getMessage();
+            log.error(errorMessage, e);
+            return errorMessage;
+        }
+    }
+
+    /**
+     * 计算文件相对于根目录的深度
+     */
+    private int getRelativeDepth(File root, File file) {
+        Path rootPath = root.toPath();
+        Path filePath = file.toPath();
+        return rootPath.relativize(filePath).getNameCount() - 1;
+    }
+
+    /**
+     * 判断是否应该忽略该文件或目录
+     */
+    private boolean shouldIgnore(String fileName) {
+        // 检查是否在忽略名称列表中
+        if (IGNORED_NAMES.contains(fileName)) {
+            return true;
+        }
+
+        // 检查文件扩展名
+        return IGNORED_EXTENSIONS.stream().anyMatch(fileName::endsWith);
+    }
+}
+
+```
+
+```java
+package com.lk.aizerocodeplatform.ai.tools;
+
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/4 18:27
+ * 文件修改工具
+ * 支持 AI 通过工具调用的方式修改文件内容
+ */
+@Slf4j
+@Component
+public class FileModifyTool {
+
+    @Tool("修改文件内容，用新内容替换指定的旧内容")
+    public String modifyFile(
+            @P("文件的相对路径")
+            String relativeFilePath,
+            @P("要替换的旧内容")
+            String oldContent,
+            @P("替换后的新内容")
+            String newContent,
+            @ToolMemoryId Long appId
+    ) {
+        try {
+            Path path = Paths.get(relativeFilePath);
+            if (!path.isAbsolute()) {
+                String projectDirName = "vue_project_" + appId;
+                Path projectRoot = Paths.get(CodeFileSaveConstant.ROOT_PATH, projectDirName);
+                path = projectRoot.resolve(relativeFilePath);
+            }
+            if (!Files.exists(path) || !Files.isRegularFile(path)) {
+                return "错误：文件不存在或不是文件 - " + relativeFilePath;
+            }
+            String originalContent = Files.readString(path);
+            if (!originalContent.contains(oldContent)) {
+                return "警告：文件中未找到要替换的内容，文件未修改 - " + relativeFilePath;
+            }
+            String modifiedContent = originalContent.replace(oldContent, newContent);
+            if (originalContent.equals(modifiedContent)) {
+                return "信息：替换后文件内容未发生变化 - " + relativeFilePath;
+            }
+            Files.writeString(path, modifiedContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            log.info("成功修改文件: {}", path.toAbsolutePath());
+            return "文件修改成功: " + relativeFilePath;
+        } catch (IOException e) {
+            String errorMessage = "修改文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+            log.error(errorMessage, e);
+            return errorMessage;
+        }
+    }
+}
+```
+
+```java
+package com.lk.aizerocodeplatform.ai.tools;
+
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * @Author 梁科
+ * * @Version 1.0
+ * * @ Date 2026/5/4 18:28
+ * 文件读取工具
+ * 支持 AI 通过工具调用的方式读取文件内容
+ */
+@Slf4j
+@Component
+public class FileReadTool {
+
+    @Tool("读取指定路径的文件内容")
+    public String readFile(
+            @P("文件的相对路径")
+            String relativeFilePath,
+            @ToolMemoryId Long appId
+    ) {
+        try {
+            Path path = Paths.get(relativeFilePath);
+            if (!path.isAbsolute()) {
+                String projectDirName = "vue_project_" + appId;
+                Path projectRoot = Paths.get(CodeFileSaveConstant.ROOT_PATH, projectDirName);
+                path = projectRoot.resolve(relativeFilePath);
+            }
+            if (!Files.exists(path) || !Files.isRegularFile(path)) {
+                return "错误：文件不存在或不是文件 - " + relativeFilePath;
+            }
+            return Files.readString(path);
+        } catch (IOException e) {
+            String errorMessage = "读取文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+            log.error(errorMessage, e);
+            return errorMessage;
+        }
+    }
+}
+```
+
+### 第三步：使用工具
+
+```java
+/**
+     * 通过appId创建AiCodeGenService，
+     * 用于隔离不同的对话记忆
+     *
+     * @param appId 应用id
+     * @return AI代码生成服务
+     */
+    private AiCodeGenService createAiCodeGenService(Long appId, CodeGenTypeEnum codeGenTypeEnum) {
+        // 创建对话记忆
+        MessageWindowChatMemory chatMemory = MessageWindowChatMemory.builder()
+                .id(appId)
+                .chatMemoryStore(redisChatMemoryStore)
+                .maxMessages(20)
+                .build();
+        // 首次创建AiCodeGenService需要从数据库中加载历史对话到对话记忆中
+        loadChatHistoryToMemory(appId, chatMemory, 20L);
+        // 根据不同的代码生成类型，创建不同的AI服务
+        return switch (codeGenTypeEnum) {
+            // vue工程项目使用推理流式模型
+            case VUE_PROJECT -> AiServices.builder(AiCodeGenService.class)
+                    .streamingChatModel(reasoningStreamChatModel)
+                    .chatMemoryProvider(memoryId -> chatMemory)
+                    .tools(
+                            new FileWriteTool(),
+                            new FileDeleteTool(),
+                            new FileDirReadTool(),
+                            new FileModifyTool(),
+                            new FileReadTool()
+                    )
+                    .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()))
+                    .build();
+            // 普通代码文件使用普通模型
+            case MULTI_FILE, HTML -> AiServices.builder(AiCodeGenService.class)
+                    .chatModel(chatModel)
+                    .streamingChatModel(openAiStreamingChatModel)
+                    .chatMemory(chatMemory)
+                    .build();
+            default ->
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的代码生成类型：" + codeGenTypeEnum.getValue());
+        };
+    }
+
+```
+
+## 3、工具信息优化
+
+为了提供更好的⁢⁢⁢用户体验，每个工具的参数和‍‍‍输出信息都应该有所区别。比‌‌‌如修改文件工具，应该同时展‎‎‎示修改的文件相对路径、被替‏‏‏换的旧内容、替换后的新内容。如果在处理 AI 流的⁢⁢⁢代码中，通过写 if else 来区分这些输‍‍‍出信息，代码可能会比较复杂。因此，我们可以结‌‌‌合策略模式和工厂模式的思路，每个工具类就像一‎‎‎个策略，提供了输出不同工具调用信息的方法；还‏‏‏需要一个工厂来创建和管理这些工具。
+
+![image-20260504202312100](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260504202312100.png)
+
+### 第一步：创建工具基类
+
+```java
+package com.lk.aizerocodeplatform.ai.tools;
+
+import cn.hutool.json.JSONObject;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/4 20:23
+ * 工具基类
+ * 定义所有工具的通用接口
+ */
+public abstract class BaseTool {
+
+    /**
+     * 获取工具的英文名称（对应方法名）
+     *
+     * @return 工具英文名称
+     */
+    public abstract String getToolName();
+
+    /**
+     * 获取工具的中文显示名称
+     *
+     * @return 工具中文名称
+     */
+    public abstract String getDisplayName();
+
+    /**
+     * 生成工具请求时的返回值（显示给用户）
+     *
+     * @return 工具请求显示内容
+     */
+    public String generateToolRequestResponse() {
+        return String.format("\n\n[🔧选择工具] %s\n\n", getDisplayName());
+    }
+
+    /**
+     * 生成工具执行结果格式（保存到数据库）
+     *
+     * @param arguments 工具执行参数
+     * @return 格式化的工具执行结果
+     */
+    public abstract String generateToolExecutedResult(JSONObject arguments);
+}
+```
+
+### 第二步：工具类继承工具基类
+
+```java
+package com.lk.aizerocodeplatform.ai.tools;
+
+import cn.hutool.json.JSONObject;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * * @Author 梁科
+ * * @Version 1.0
+ * * @ Date 2026/5/4 18:23
+ * 文件删除工具
+ * 支持 AI 通过工具调用的方式删除文件
+ */
+@Slf4j
+@Component
+public class FileDeleteTool extends BaseTool {
+
+    @Tool("删除指定路径的文件")
+    public String deleteFile(
+            @P("文件的相对路径")
+            String relativeFilePath,
+            @ToolMemoryId Long appId
+    ) {
+        try {
+            Path path = Paths.get(relativeFilePath);
+            if (!path.isAbsolute()) {
+                String projectDirName = "vue_project_" + appId;
+                Path projectRoot = Paths.get(CodeFileSaveConstant.ROOT_PATH, projectDirName);
+                path = projectRoot.resolve(relativeFilePath);
+            }
+            if (!Files.exists(path)) {
+                return "警告：文件不存在，无需删除 - " + relativeFilePath;
+            }
+            if (!Files.isRegularFile(path)) {
+                return "错误：指定路径不是文件，无法删除 - " + relativeFilePath;
+            }
+            // 安全检查：避免删除重要文件
+            String fileName = path.getFileName().toString();
+            if (isImportantFile(fileName)) {
+                return "错误：不允许删除重要文件 - " + fileName;
+            }
+            Files.delete(path);
+            log.info("成功删除文件: {}", path.toAbsolutePath());
+            return "文件删除成功: " + relativeFilePath;
+        } catch (IOException e) {
+            String errorMessage = "删除文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+            log.error(errorMessage, e);
+            return errorMessage;
+        }
+    }
+
+    /**
+     * 判断是否是重要文件，不允许删除
+     */
+    private boolean isImportantFile(String fileName) {
+        String[] importantFiles = {
+                "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+                "vite.config.js", "vite.config.ts", "vue.config.js",
+                "tsconfig.json", "tsconfig.app.json", "tsconfig.node.json",
+                "index.html", "main.js", "main.ts", "App.vue", ".gitignore", "README.md"
+        };
+        for (String important : importantFiles) {
+            if (important.equalsIgnoreCase(fileName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public String getToolName() {
+        return "deleteFile";
+    }
+
+    @Override
+    public String getDisplayName() {
+        return "删除文件";
+    }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments) {
+        String relativeFilePath = arguments.getStr("relativeFilePath");
+        return String.format("[工具调用] %s %s", getDisplayName(), relativeFilePath);
+    }
+}
+```
+
+```java
+package com.lk.aizerocodeplatform.ai.tools;
+
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/4 18:26
+ * 文件目录读取工具
+ * 使用 Hutool 简化文件操作
+ */
+@Slf4j
+@Component
+public class FileDirReadTool extends BaseTool {
+
+    /**
+     * 需要忽略的文件和目录
+     */
+    private static final Set<String> IGNORED_NAMES = Set.of(
+            "node_modules", ".git", "dist", "build", ".DS_Store",
+            ".env", "target", ".mvn", ".idea", ".vscode", "coverage"
+    );
+
+    /**
+     * 需要忽略的文件扩展名
+     */
+    private static final Set<String> IGNORED_EXTENSIONS = Set.of(
+            ".log", ".tmp", ".cache", ".lock"
+    );
+
+    @Tool("读取目录结构，获取指定目录下的所有文件和子目录信息")
+    public String readDir(
+            @P("目录的相对路径，为空则读取整个项目结构")
+            String relativeDirPath,
+            @ToolMemoryId Long appId
+    ) {
+        try {
+            Path path = Paths.get(relativeDirPath == null ? "" : relativeDirPath);
+            if (!path.isAbsolute()) {
+                String projectDirName = "vue_project_" + appId;
+                Path projectRoot = Paths.get(CodeFileSaveConstant.ROOT_PATH, projectDirName);
+                path = projectRoot.resolve(relativeDirPath == null ? "" : relativeDirPath);
+            }
+            File targetDir = path.toFile();
+            if (!targetDir.exists() || !targetDir.isDirectory()) {
+                return "错误：目录不存在或不是目录 - " + relativeDirPath;
+            }
+            StringBuilder structure = new StringBuilder();
+            structure.append("项目目录结构:\n");
+            // 使用 Hutool 递归获取所有文件
+            List<File> allFiles = FileUtil.loopFiles(targetDir, file -> !shouldIgnore(file.getName()));
+            // 按路径深度和名称排序显示
+            allFiles.stream()
+                    .sorted((f1, f2) -> {
+                        int depth1 = getRelativeDepth(targetDir, f1);
+                        int depth2 = getRelativeDepth(targetDir, f2);
+                        if (depth1 != depth2) {
+                            return Integer.compare(depth1, depth2);
+                        }
+                        return f1.getPath().compareTo(f2.getPath());
+                    })
+                    .forEach(file -> {
+                        int depth = getRelativeDepth(targetDir, file);
+                        String indent = "  ".repeat(depth);
+                        structure.append(indent).append(file.getName());
+                    });
+            return structure.toString();
+
+        } catch (Exception e) {
+            String errorMessage = "读取目录结构失败: " + relativeDirPath + ", 错误: " + e.getMessage();
+            log.error(errorMessage, e);
+            return errorMessage;
+        }
+    }
+
+    /**
+     * 计算文件相对于根目录的深度
+     */
+    private int getRelativeDepth(File root, File file) {
+        Path rootPath = root.toPath();
+        Path filePath = file.toPath();
+        return rootPath.relativize(filePath).getNameCount() - 1;
+    }
+
+    /**
+     * 判断是否应该忽略该文件或目录
+     */
+    private boolean shouldIgnore(String fileName) {
+        // 检查是否在忽略名称列表中
+        if (IGNORED_NAMES.contains(fileName)) {
+            return true;
+        }
+
+        // 检查文件扩展名
+        return IGNORED_EXTENSIONS.stream().anyMatch(fileName::endsWith);
+    }
+
+    @Override
+    public String getToolName() {
+        return "readDir";
+    }
+
+    @Override
+    public String getDisplayName() {
+        return "读取目录";
+    }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments) {
+        String relativeDirPath = arguments.getStr("relativeDirPath");
+        if (StrUtil.isEmpty(relativeDirPath)) {
+            relativeDirPath = "根目录";
+        }
+        return String.format("[工具调用] %s %s", getDisplayName(), relativeDirPath);
+    }
+}
+
+```
+
+~~~java
+package com.lk.aizerocodeplatform.ai.tools;
+
+import cn.hutool.json.JSONObject;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/4 18:27
+ * 文件修改工具
+ * 支持 AI 通过工具调用的方式修改文件内容
+ */
+@Slf4j
+@Component
+public class FileModifyTool extends BaseTool {
+
+    @Tool("修改文件内容，用新内容替换指定的旧内容")
+    public String modifyFile(
+            @P("文件的相对路径")
+            String relativeFilePath,
+            @P("要替换的旧内容")
+            String oldContent,
+            @P("替换后的新内容")
+            String newContent,
+            @ToolMemoryId Long appId
+    ) {
+        try {
+            Path path = Paths.get(relativeFilePath);
+            if (!path.isAbsolute()) {
+                String projectDirName = "vue_project_" + appId;
+                Path projectRoot = Paths.get(CodeFileSaveConstant.ROOT_PATH, projectDirName);
+                path = projectRoot.resolve(relativeFilePath);
+            }
+            if (!Files.exists(path) || !Files.isRegularFile(path)) {
+                return "错误：文件不存在或不是文件 - " + relativeFilePath;
+            }
+            String originalContent = Files.readString(path);
+            if (!originalContent.contains(oldContent)) {
+                return "警告：文件中未找到要替换的内容，文件未修改 - " + relativeFilePath;
+            }
+            String modifiedContent = originalContent.replace(oldContent, newContent);
+            if (originalContent.equals(modifiedContent)) {
+                return "信息：替换后文件内容未发生变化 - " + relativeFilePath;
+            }
+            Files.writeString(path, modifiedContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            log.info("成功修改文件: {}", path.toAbsolutePath());
+            return "文件修改成功: " + relativeFilePath;
+        } catch (IOException e) {
+            String errorMessage = "修改文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+            log.error(errorMessage, e);
+            return errorMessage;
+        }
+    }
+
+    @Override
+    public String getToolName() {
+        return "modifyFile";
+    }
+
+    @Override
+    public String getDisplayName() {
+        return "修改文件";
+    }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments) {
+        String relativeFilePath = arguments.getStr("relativeFilePath");
+        String oldContent = arguments.getStr("oldContent");
+        String newContent = arguments.getStr("newContent");
+        // 显示对比内容
+        return String.format("""
+                [工具调用] %s %s
+                
+                替换前：
+                ```
+                %s
+                ```
+                
+                替换后：
+                ```
+                %s
+                ```
+                """, getDisplayName(), relativeFilePath, oldContent, newContent);
+    }
+}
+
+
+~~~
+
+```java
+package com.lk.aizerocodeplatform.ai.tools;
+
+import cn.hutool.json.JSONObject;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * @Author 梁科
+ * * @Version 1.0
+ * * @ Date 2026/5/4 18:28
+ * 文件读取工具
+ * 支持 AI 通过工具调用的方式读取文件内容
+ */
+@Slf4j
+@Component
+public class FileReadTool extends BaseTool{
+
+    @Tool("读取指定路径的文件内容")
+    public String readFile(
+            @P("文件的相对路径")
+            String relativeFilePath,
+            @ToolMemoryId Long appId
+    ) {
+        try {
+            Path path = Paths.get(relativeFilePath);
+            if (!path.isAbsolute()) {
+                String projectDirName = "vue_project_" + appId;
+                Path projectRoot = Paths.get(CodeFileSaveConstant.ROOT_PATH, projectDirName);
+                path = projectRoot.resolve(relativeFilePath);
+            }
+            if (!Files.exists(path) || !Files.isRegularFile(path)) {
+                return "错误：文件不存在或不是文件 - " + relativeFilePath;
+            }
+            return Files.readString(path);
+        } catch (IOException e) {
+            String errorMessage = "读取文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+            log.error(errorMessage, e);
+            return errorMessage;
+        }
+    }
+
+    @Override
+    public String getToolName() {
+        return "readFile";
+    }
+
+    @Override
+    public String getDisplayName() {
+        return "读取文件";
+    }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments) {
+        String relativeFilePath = arguments.getStr("relativeFilePath");
+        return String.format("[工具调用] %s %s", getDisplayName(), relativeFilePath);
+    }
+}
+```
+
+~~~java
+package com.lk.aizerocodeplatform.ai.tools;
+
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.json.JSONObject;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+
+/**
+ * * @Author 梁科
+ * * @Version 1.0
+ * * @ Date 2026/4/29 14:29
+ * 文件写入工具
+ * 支持 AI 通过工具调用的方式写入文件
+ */
+@Slf4j
+@Component
+public class FileWriteTool extends BaseTool {
+
+    @Tool("写入文件到指定路径")
+    public String writeFile(
+            @P("文件的相对路径") String relativeFilePath,
+            @P("要写入文件的内容") String content,
+            @ToolMemoryId Long appId
+            // @ToolMemoryId可以拿到AI调用时传入的参数
+    ) {
+        try {
+            Path path = Paths.get(relativeFilePath);
+            if (!path.isAbsolute()) {
+                // 相对路径处理，创建基于 appId 的项目目录
+                String projectDirName = "vue_project_" + appId;
+                Path projectRoot = Paths.get(CodeFileSaveConstant.ROOT_PATH, projectDirName);
+                path = projectRoot.resolve(relativeFilePath);
+            }
+            // 创建父目录（如果不存在）
+            Path parentDir = path.getParent();
+            if (parentDir != null) {
+                Files.createDirectories(parentDir);
+            }
+            // 写入文件内容
+            Files.write(path, content.getBytes(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+            log.info("成功写入文件: {}", path.toAbsolutePath());
+            // 注意要返回相对路径，不能让 AI 把文件绝对路径返回给用户
+            return "文件写入成功: " + relativeFilePath;
+        } catch (IOException e) {
+            String errorMessage = "文件写入失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+            log.error(errorMessage, e);
+            return errorMessage;
+        }
+    }
+
+    @Override
+    public String getToolName() {
+        return "writeFile";
+    }
+
+    @Override
+    public String getDisplayName() {
+        return "写入文件";
+    }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments) {
+        String relativeFilePath = arguments.getStr("relativeFilePath");
+        String suffix = FileUtil.getSuffix(relativeFilePath);
+        String content = arguments.getStr("content");
+        return String.format("""
+                [工具调用] %s %s
+                ```%s
+                %s
+                ```
+                """, getDisplayName(), relativeFilePath, suffix, content);
+    }
+}
+~~~
+
+### 第三步：创建工具管理器
+
+```java
+package com.lk.aizerocodeplatform.ai.tools;
+
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * * @Author 梁科
+ * * @Version 1.0
+ * * @ Date 2026/5/4 20:35
+ * 工具管理器
+ * 统一管理所有工具，提供根据名称获取工具的功能
+ */
+@Slf4j
+@Component
+public class ToolManager {
+
+    /**
+     * 工具名称到工具实例的映射
+     */
+    private final Map<String, BaseTool> toolMap = new HashMap<>();
+
+    /**
+     * 自动注入所有工具
+     */
+    @Resource
+    private BaseTool[] tools;
+
+    /**
+     * 初始化工具映射
+     */
+    @PostConstruct
+    public void initTools() {
+        for (BaseTool tool : tools) {
+            toolMap.put(tool.getToolName(), tool);
+            log.info("注册工具: {} -> {}", tool.getToolName(), tool.getDisplayName());
+        }
+        log.info("工具管理器初始化完成，共注册 {} 个工具", toolMap.size());
+    }
+
+    /**
+     * 根据工具名称获取工具实例
+     *
+     * @param toolName 工具英文名称
+     * @return 工具实例
+     */
+    public BaseTool getTool(String toolName) {
+        return toolMap.get(toolName);
+    }
+
+    /**
+     * 获取已注册的工具集合
+     *
+     * @return 工具实例集合
+     */
+    public BaseTool[] getAllTools() {
+        return tools;
+    }
+}
+```
+
+### 第四步：修改ai服务工厂类
+
+```java
+/**
+ * 通过appId创建AiCodeGenService，
+ * 用于隔离不同的对话记忆
+ *
+ * @param appId 应用id
+ * @return AI代码生成服务
+ */
+private AiCodeGenService createAiCodeGenService(Long appId, CodeGenTypeEnum codeGenTypeEnum) {
+    // 创建对话记忆
+    MessageWindowChatMemory chatMemory = MessageWindowChatMemory.builder()
+            .id(appId)
+            .chatMemoryStore(redisChatMemoryStore)
+            .maxMessages(20)
+            .build();
+    // 首次创建AiCodeGenService需要从数据库中加载历史对话到对话记忆中
+    loadChatHistoryToMemory(appId, chatMemory, 20L);
+    // 根据不同的代码生成类型，创建不同的AI服务
+    return switch (codeGenTypeEnum) {
+        // vue工程项目使用推理流式模型
+        case VUE_PROJECT -> AiServices.builder(AiCodeGenService.class)
+                .streamingChatModel(reasoningStreamChatModel)
+                .chatMemoryProvider(memoryId -> chatMemory)
+                .tools(
+                    toolManager.getAllTools()
+                )
+                .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()))
+                .build();
+        // 普通代码文件使用普通模型
+        case MULTI_FILE, HTML -> AiServices.builder(AiCodeGenService.class)
+                .chatModel(chatModel)
+                .streamingChatModel(openAiStreamingChatModel)
+                .chatMemory(chatMemory)
+                .build();
+        default ->
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的代码生成类型：" + codeGenTypeEnum.getValue());
+    };
+}
+```
+
+### 第五步：修改消息流处理器
+
+```java
+package com.lk.aizerocodeplatform.core.handler;
+
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+import com.lk.aizerocodeplatform.ai.model.message.AiResponseMessage;
+import com.lk.aizerocodeplatform.ai.model.message.StreamMessage;
+import com.lk.aizerocodeplatform.ai.model.message.StreamMessageTypeEnum;
+import com.lk.aizerocodeplatform.ai.model.message.ToolCallingResultMessage;
+import com.lk.aizerocodeplatform.ai.tools.BaseTool;
+import com.lk.aizerocodeplatform.ai.tools.ToolManager;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import com.lk.aizerocodeplatform.core.builder.VueProjectBuilderd;
+import com.lk.aizerocodeplatform.enums.ChatMessageTypeEnum;
+import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import com.lk.aizerocodeplatform.service.ChatHistoryService;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
+
+import java.io.File;
+import java.util.HashSet;
+import java.util.Set;
+
+/**
+ * JSON 消息流处理器
+ * 处理 VUE_PROJECT 类型的复杂流式响应，包含工具调用信息
+ *
+ * @author LK
+ */
+@Slf4j
+@Component
+public class JsonMessageStreamHandler {
+    @Resource
+    private VueProjectBuilderd vueProjectBuilderd;
+    @Resource
+    private ToolManager toolManager;
+
+    /**
+     * 处理 TokenStream（VUE_PROJECT）
+     * 解析 JSON 消息并重组为完整的响应格式
+     *
+     * @param originFlux         原始流
+     * @param chatHistoryService 聊天历史服务
+     * @param appId              应用ID
+     * @param userLoginVO        登录用户
+     * @return 处理后的流
+     */
+    public Flux<String> handle(Flux<String> originFlux,
+                               ChatHistoryService chatHistoryService,
+                               long appId, UserLoginVO userLoginVO) {
+        // 收集数据用于生成后端记忆格式
+        StringBuilder chatHistoryStringBuilder = new StringBuilder();
+        // 用于跟踪已经见过的工具ID，判断是否是第一次调用
+        Set<String> seenToolIds = new HashSet<>();
+        return originFlux
+                .map(chunk -> {
+                    // 解析每个 JSON 消息块
+                    return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, seenToolIds);
+                })
+                // 过滤空字串
+                .filter(StrUtil::isNotEmpty)
+                .doOnComplete(() -> {
+                    // 流式响应完成后，添加 AI 消息到对话历史
+                    String aiResponse = chatHistoryStringBuilder.toString();
+                    chatHistoryService.addChatHistory(appId, userLoginVO.getId(), aiResponse, ChatMessageTypeEnum.AI.getValue());
+                    // 打包构建Vue项目
+                    String projectPath = CodeFileSaveConstant.ROOT_PATH + File.separator + "vue_project_" + appId;
+                    vueProjectBuilderd.buildProjectAsync(projectPath);
+                })
+                .doOnError(error -> {
+                    // 如果AI回复失败，也要记录错误消息
+                    String errorMessage = "AI回复失败: " + error.getMessage();
+                    chatHistoryService.addChatHistory(appId, userLoginVO.getId(), errorMessage, ChatMessageTypeEnum.AI.getValue());
+                });
+    }
+
+    /**
+     * 解析并收集 TokenStream 数据
+     */
+    private String handleJsonMessageChunk(String chunk, StringBuilder chatHistoryStringBuilder, Set<String> seenToolIds) {
+        // 解析 JSON
+        StreamMessage streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
+        StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(streamMessage.getType());
+        switch (typeEnum) {
+            case AI_RESPONSE -> {
+                AiResponseMessage aiMessage = JSONUtil.toBean(chunk, AiResponseMessage.class);
+                String data = aiMessage.getData();
+                // 直接拼接响应
+                chatHistoryStringBuilder.append(data);
+                return data;
+            }
+            case TOOL_REQUEST -> {
+                ToolCallingResultMessage toolRequestMessage = JSONUtil.toBean(chunk, ToolCallingResultMessage.class);
+                String toolId = toolRequestMessage.getId();
+                String toolName = toolRequestMessage.getName();
+                // 检查是否是第一次看到这个工具 ID
+                if (toolId != null && !seenToolIds.contains(toolId)) {
+                    // 第一次调用这个工具，记录 ID 并完整返回工具信息
+                    seenToolIds.add(toolId);
+                    // 通过工具名得到工具类，然后调用工具类的工具请求方法
+                    return toolManager.getTool(toolName).generateToolRequestResponse();
+                } else {
+                    // 不是第一次调用这个工具，直接返回空
+                    return "";
+                }
+            }
+            case TOOL_EXECUTED -> {
+                ToolCallingResultMessage toolExecutedMessage = JSONUtil.toBean(chunk, ToolCallingResultMessage.class);
+                JSONObject jsonObject = JSONUtil.parseObj(toolExecutedMessage.getArguments());
+                String toolName = toolExecutedMessage.getName();
+                // 通过工具名获取工具类
+                BaseTool tool = toolManager.getTool(toolName);
+                // 调用工具类的工具处理结果方法
+                String result = tool.generateToolExecutedResult(jsonObject);
+                // 输出前端和要持久化的内容
+                String output = String.format("\n\n%s\n\n", result);
+                chatHistoryStringBuilder.append(output);
+                return output;
+            }
+            default -> {
+                log.error("不支持的消息类型: {}", typeEnum);
+                return "";
+            }
+        }
+    }
+}
+```
+
+# 九、AI工作流
+
