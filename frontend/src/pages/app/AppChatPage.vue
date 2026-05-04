@@ -6,6 +6,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { pageQuery } from '@/api/duihualishixiangguanjiekou.ts'
 import { appDeploy, cancelDeploy, getAppVoById } from '@/api/yingyongmokuaixiangguanjiekou.ts'
 import logoUrl from '@/assets/logo.png'
+import {
+  buildEditablePreviewHtml,
+  formatVisualEditorSelectionPrompt,
+  useVisualEditor,
+} from '@/composables/useVisualEditor.ts'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 
 interface ChatMessage {
@@ -64,6 +69,7 @@ const previewRefreshing = ref(false)
 const previewError = ref('')
 const previewVersion = ref(Date.now())
 const messageListRef = ref<HTMLElement>()
+const previewFrameRef = ref<HTMLIFrameElement | null>(null)
 
 let streamAbortController: AbortController | null = null
 let previewRequestId = 0
@@ -108,7 +114,13 @@ const canManage = computed(() => loginUserStore.isAdmin || isOwner.value)
 const isDeployed = computed(() => Boolean(app.value?.deployKey))
 const deployedUrl = computed(() => (app.value?.deployKey ? `http://localhost/${app.value.deployKey}` : ''))
 const previewRootUrl = computed(() => `${API_BASE_URL}/static/${appId.value}/`)
-const previewUrl = computed(() => `${previewRootUrl.value}?t=${previewVersion.value}`)
+const {
+  isEditing: isVisualEditing,
+  selectedElement: selectedVisualElement,
+  toggleEditing: toggleVisualEditing,
+  disableEditing: disableVisualEditing,
+  clearSelectedElement,
+} = useVisualEditor(previewFrameRef)
 const previewTitle = computed(() => {
   if (previewError.value && !sending.value && !previewRefreshing.value) {
     return '\u9884\u89c8\u4e0d\u53ef\u7528'
@@ -125,6 +137,36 @@ const previewDescription = computed(() => {
   return isVueProjectMode.value
     ? '\u540e\u7aef\u5b8c\u6210 npm install / npm run build \u4e14\u751f\u6210\u6587\u4ef6\u53ef\u8bbf\u95ee\u540e\uff0c\u8fd9\u91cc\u4f1a\u663e\u793a\u9884\u89c8\u3002'
     : '\u4ee3\u7801\u751f\u6210\u5b8c\u6210\u540e\uff0c\u8fd9\u91cc\u4f1a\u663e\u793a\u9884\u89c8\u3002'
+})
+const selectedVisualElementLabel = computed(() =>
+  selectedVisualElement.value
+    ? `${selectedVisualElement.value.tagName}${selectedVisualElement.value.id ? `#${selectedVisualElement.value.id}` : ''}`
+    : '',
+)
+const selectedVisualElementDescription = computed(() => {
+  if (!selectedVisualElement.value) {
+    return ''
+  }
+
+  const lines = [
+    `内容：${selectedVisualElement.value.content || '（无）'}`,
+    `选择器：${selectedVisualElement.value.selector}`,
+  ]
+
+  if (selectedVisualElement.value.className) {
+    lines.push(`类名：${selectedVisualElement.value.className}`)
+  }
+
+  return lines.join('\n')
+})
+const inputHintText = computed(() => {
+  if (isVisualEditing.value) {
+    return '在右侧预览中点击元素即可选中，发送后会自动退出编辑模式。'
+  }
+
+  return isVueProjectMode.value
+    ? 'Vue \u6a21\u5f0f\u9700\u8981\u7b49\u5f85\u540e\u7aef\u6784\u5efa\u5b8c\u6210\u540e\uff0c\u9884\u89c8\u624d\u53ef\u8bbf\u95ee\u3002'
+    : '\u6309 Ctrl + Enter \u53ef\u5feb\u901f\u53d1\u9001\u3002'
 })
 const hasHtmlCodeBlock = (content: string) => /```html\s*[\r\n]/i.test(content)
 const hasMultiFileCodeBlocks = (content: string) =>
@@ -216,7 +258,7 @@ const refreshPreview = async ({
           return false
         }
 
-        previewHtml.value = isVueProjectMode.value ? rewritePreviewHtml(html) : ''
+        previewHtml.value = buildEditablePreviewHtml(rewritePreviewHtml(html), previewRootUrl.value)
         previewReady.value = true
         previewVersion.value = Date.now()
         previewError.value = ''
@@ -884,10 +926,16 @@ const sendMessage = async (content = inputMessage.value) => {
   inputMessage.value = ''
   sending.value = true
 
+  const prompt = selectedVisualElement.value
+    ? `${text}\n\n${formatVisualEditorSelectionPrompt(selectedVisualElement.value)}`
+    : text
+  clearSelectedElement()
+  disableVisualEditing()
+
   const userMessage: ChatMessage = {
     id: `${Date.now()}-user`,
     role: 'user',
-    content: text,
+    content: prompt,
   }
   const assistantMessage = reactive<ChatMessage>({
     id: `${Date.now()}-assistant`,
@@ -903,7 +951,7 @@ const sendMessage = async (content = inputMessage.value) => {
 
   messages.value.push(userMessage, assistantMessage)
   await scrollToBottom()
-  void consumeAssistantStream(assistantMessage, text)
+  void consumeAssistantStream(assistantMessage, prompt)
 }
 
 const deployApp = async () => {
@@ -1107,6 +1155,17 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="chat-input">
+          <a-alert
+            v-if="selectedVisualElement"
+            class="chat-input__selection"
+            closable
+            show-icon
+            type="info"
+            :message="`选中元素：${selectedVisualElementLabel}`"
+            :description="selectedVisualElementDescription"
+            @close="clearSelectedElement"
+          />
+
           <a-textarea
             v-model:value="inputMessage"
             :auto-size="{ minRows: 4, maxRows: 7 }"
@@ -1117,6 +1176,14 @@ onBeforeUnmount(() => {
           />
 
           <div class="chat-input__footer">
+            <a-button
+              class="chat-input__edit"
+              :type="isVisualEditing ? 'primary' : 'default'"
+              :disabled="sending || previewRefreshing || !previewReady"
+              @click="toggleVisualEditing"
+            >
+              {{ isVisualEditing ? '退出编辑' : '进入编辑' }}
+            </a-button>
             <a-button
               type="primary"
               shape="circle"
@@ -1130,11 +1197,7 @@ onBeforeUnmount(() => {
           </div>
 
           <p class="chat-input__hint">
-            {{
-              isVueProjectMode
-                ? 'Vue \u6a21\u5f0f\u9700\u8981\u7b49\u5f85\u540e\u7aef\u6784\u5efa\u5b8c\u6210\u540e\uff0c\u9884\u89c8\u624d\u53ef\u8bbf\u95ee\u3002'
-                : '\u6309 Ctrl + Enter \u53ef\u5feb\u901f\u53d1\u9001\u3002'
-            }}
+            {{ inputHintText }}
           </p>
         </div>
       </aside>
@@ -1147,15 +1210,9 @@ onBeforeUnmount(() => {
           </div>
 
           <iframe
-            v-if="isVueProjectMode"
-            :key="`inline-${previewVersion}`"
-            :srcdoc="previewHtml"
-            title="&#29983;&#25104;&#39044;&#35272;"
-          ></iframe>
-          <iframe
-            v-else
+            ref="previewFrameRef"
             :key="previewVersion"
-            :src="previewUrl"
+            :srcdoc="previewHtml"
             title="&#29983;&#25104;&#39044;&#35272;"
           ></iframe>
         </div>
@@ -1523,12 +1580,24 @@ onBeforeUnmount(() => {
   line-height: 1.8;
 }
 
+.chat-input__selection {
+  margin-bottom: 12px;
+}
+
+.chat-input__selection :deep(.ant-alert-description) {
+  white-space: pre-wrap;
+}
+
 .chat-input__footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 12px;
   margin-top: 12px;
+}
+
+.chat-input__edit {
+  min-width: 96px;
 }
 
 .chat-input__send {
@@ -1648,5 +1717,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-
-
