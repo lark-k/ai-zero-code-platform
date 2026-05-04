@@ -2,7 +2,7 @@ package com.lk.aizerocodeplatform.ai;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.lk.aizerocodeplatform.ai.tools.FileWriteTool;
+import com.lk.aizerocodeplatform.ai.tools.*;
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
@@ -91,7 +91,7 @@ public class AiCodeGenServiceFactory {
     public AiCodeGenService getAiCodeGenService(Long appId, CodeGenTypeEnum codeGenTypeEnum) {
         String cacheKey = this.getCaffeineCacheKey(appId, codeGenTypeEnum);
         // 先从Caffeine本地缓存中取，如果没有取到就调用createAiCodeGenService方法创建
-        return serviceCache.get(cacheKey, key -> createAiCodeGenService(appId,codeGenTypeEnum));
+        return serviceCache.get(cacheKey, key -> createAiCodeGenService(appId, codeGenTypeEnum));
     }
 
     /**
@@ -116,7 +116,13 @@ public class AiCodeGenServiceFactory {
             case VUE_PROJECT -> AiServices.builder(AiCodeGenService.class)
                     .streamingChatModel(reasoningStreamChatModel)
                     .chatMemoryProvider(memoryId -> chatMemory)
-                    .tools(new FileWriteTool())
+                    .tools(
+                            new FileWriteTool(),
+                            new FileDeleteTool(),
+                            new FileDirReadTool(),
+                            new FileModifyTool(),
+                            new FileReadTool()
+                    )
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()))
                     .build();
             // 普通代码文件使用普通模型
@@ -175,7 +181,8 @@ public class AiCodeGenServiceFactory {
 
     /**
      * 获取Caffeine本地缓存的key
-     * @param appId 应用id
+     *
+     * @param appId           应用id
      * @param codeGenTypeEnum 代码生成类型
      * @return Caffeine本地缓存的key
      */
