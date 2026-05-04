@@ -48,6 +48,8 @@ public class AiCodeGenServiceFactory {
      */
     @Resource
     private StreamingChatModel reasoningStreamChatModel;
+    @Resource
+    private ToolManager toolManager;
 
     /**
      * Caffeine本质就是一个Map，只是能够更方便的进行管理里面的信息，比如设置过期时间等。
@@ -117,11 +119,7 @@ public class AiCodeGenServiceFactory {
                     .streamingChatModel(reasoningStreamChatModel)
                     .chatMemoryProvider(memoryId -> chatMemory)
                     .tools(
-                            new FileWriteTool(),
-                            new FileDeleteTool(),
-                            new FileDirReadTool(),
-                            new FileModifyTool(),
-                            new FileReadTool()
+                        toolManager.getAllTools()
                     )
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()))
                     .build();
