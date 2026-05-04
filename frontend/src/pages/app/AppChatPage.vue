@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -113,13 +113,17 @@ const isOwner = computed(
 const canManage = computed(() => loginUserStore.isAdmin || isOwner.value)
 const isDeployed = computed(() => Boolean(app.value?.deployKey))
 const deployedUrl = computed(() => (app.value?.deployKey ? `http://localhost/${app.value.deployKey}` : ''))
-const previewRootUrl = computed(() => `${API_BASE_URL}/static/${appId.value}/`)
+const previewRootUrl = computed(() => `/api/static/${appId.value}/`)
+const previewIframeSrc = computed(() =>
+  isVueProjectMode.value ? `/api/static/${appId.value}/?t=${previewVersion.value}` : '',
+)
 const {
   isEditing: isVisualEditing,
   selectedElement: selectedVisualElement,
   toggleEditing: toggleVisualEditing,
   disableEditing: disableVisualEditing,
   clearSelectedElement,
+  syncFrameState: syncVisualEditorFrame,
 } = useVisualEditor(previewFrameRef)
 const previewTitle = computed(() => {
   if (previewError.value && !sending.value && !previewRefreshing.value) {
@@ -168,6 +172,19 @@ const inputHintText = computed(() => {
     ? 'Vue \u6a21\u5f0f\u9700\u8981\u7b49\u5f85\u540e\u7aef\u6784\u5efa\u5b8c\u6210\u540e\uff0c\u9884\u89c8\u624d\u53ef\u8bbf\u95ee\u3002'
     : '\u6309 Ctrl + Enter \u53ef\u5feb\u901f\u53d1\u9001\u3002'
 })
+
+watch(
+  [isVisualEditing, previewReady, previewVersion],
+  async ([editing, ready]) => {
+    if (!editing || !ready) {
+      return
+    }
+
+    await nextTick()
+    syncVisualEditorFrame()
+  },
+  { flush: 'post' },
+)
 const hasHtmlCodeBlock = (content: string) => /```html\s*[\r\n]/i.test(content)
 const hasMultiFileCodeBlocks = (content: string) =>
   /```html\s*[\r\n]/i.test(content) &&
@@ -258,7 +275,8 @@ const refreshPreview = async ({
           return false
         }
 
-        previewHtml.value = buildEditablePreviewHtml(rewritePreviewHtml(html), previewRootUrl.value)
+        const baseHtml = rewritePreviewHtml(html)
+        previewHtml.value = buildEditablePreviewHtml(baseHtml, previewRootUrl.value)
         previewReady.value = true
         previewVersion.value = Date.now()
         previewError.value = ''
@@ -1212,7 +1230,8 @@ onBeforeUnmount(() => {
           <iframe
             ref="previewFrameRef"
             :key="previewVersion"
-            :srcdoc="previewHtml"
+            :src="isVueProjectMode ? previewIframeSrc : undefined"
+            :srcdoc="isVueProjectMode ? undefined : previewHtml"
             title="&#29983;&#25104;&#39044;&#35272;"
           ></iframe>
         </div>

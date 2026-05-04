@@ -9,16 +9,171 @@ export interface VisualEditorSelectionInfo {
 }
 
 const VISUAL_EDITOR_MESSAGE_TYPE = 'ai-zero-code-platform:visual-editor'
+const VISUAL_EDITOR_STYLE_ID = 'ai-zero-code-platform-visual-editor-style'
+const VISUAL_EDITOR_HOVER_CLASS = 'ai-zero-code-platform-visual-editor-hover'
+const VISUAL_EDITOR_SELECTED_CLASS = 'ai-zero-code-platform-visual-editor-selected'
+const VISUAL_EDITOR_IGNORED_TAGS = new Set(['html', 'body', 'head', 'script', 'style', 'link', 'meta', 'title', 'noscript'])
+
+const escapeSelectorPart = (value: string) => String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&')
+
+const getDirectIndex = (element: Element) => {
+  if (!element.parentElement) {
+    return 1
+  }
+
+  return Array.prototype.indexOf.call(element.parentElement.children, element) + 1
+}
+
+const buildSelectorPath = (element: Element) => {
+  const segments: string[] = []
+  let current: Element | null = element
+
+  while (current) {
+    const tagName = current.tagName.toLowerCase()
+    if (tagName === 'html') {
+      segments.unshift('html')
+      break
+    }
+
+    if (current.id) {
+      segments.unshift(`${tagName}#${escapeSelectorPart(current.id)}`)
+      break
+    }
+
+    segments.unshift(`${tagName}:nth-child(${getDirectIndex(current)})`)
+    current = current.parentElement
+
+    if (segments.length >= 6) {
+      break
+    }
+  }
+
+  return segments.join(' > ')
+}
+
+const normalizeElementText = (value: string, limit = 160) =>
+  value
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, limit)
+
+const isIgnoredEditableElement = (element: Element | null) =>
+  !element || VISUAL_EDITOR_IGNORED_TAGS.has(element.tagName.toLowerCase())
+
+const toEditableElement = (target: EventTarget | null) => {
+  const candidate = target as
+    | {
+        nodeType?: number
+        parentElement?: Element | null
+      }
+    | null
+
+  if (!candidate) {
+    return null
+  }
+
+  if (candidate.nodeType === 1) {
+    return target as Element
+  }
+
+  return candidate.parentElement && (candidate.parentElement as { nodeType?: number }).nodeType === 1
+    ? candidate.parentElement
+    : null
+}
+
+const resolveEditableTarget = (target: EventTarget | null) => {
+  let element = toEditableElement(target)
+
+  while (element) {
+    if (!isIgnoredEditableElement(element)) {
+      return element
+    }
+    element = element.parentElement
+  }
+
+  return null
+}
+
+const describeEditableElement = (element: Element): VisualEditorSelectionInfo => {
+  const className = typeof (element as { className?: unknown }).className === 'string'
+    ? String((element as { className?: unknown }).className).trim()
+    : ''
+
+  return {
+    tagName: element.tagName.toLowerCase(),
+    selector: buildSelectorPath(element),
+    content: normalizeElementText(
+      String(
+        element.textContent ||
+          element.getAttribute('aria-label') ||
+          element.getAttribute('alt') ||
+          element.getAttribute('title') ||
+          element.getAttribute('placeholder') ||
+          '',
+      ),
+    ),
+    id: element.id || '',
+    className,
+  }
+}
+
+const isSelectionInfo = (value: unknown): value is VisualEditorSelectionInfo => {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const selection = value as Partial<VisualEditorSelectionInfo>
+  return (
+    typeof selection.tagName === 'string' &&
+    typeof selection.selector === 'string' &&
+    typeof selection.content === 'string'
+  )
+}
+
+const normalizeSelectionInfo = (selection: VisualEditorSelectionInfo): VisualEditorSelectionInfo => ({
+  tagName: selection.tagName,
+  selector: selection.selector,
+  content: selection.content,
+  id: selection.id || '',
+  className: selection.className || '',
+})
+
+const ensureEditableStyles = (doc: Document) => {
+  if (doc.getElementById(VISUAL_EDITOR_STYLE_ID)) {
+    return
+  }
+
+  const styleElement = doc.createElement('style')
+  styleElement.id = VISUAL_EDITOR_STYLE_ID
+  styleElement.textContent = [
+    `.${VISUAL_EDITOR_HOVER_CLASS} {`,
+    '  outline: 2px solid #52c41a !important;',
+    '  outline-offset: 2px !important;',
+    '  cursor: crosshair !important;',
+    '}',
+    `.${VISUAL_EDITOR_SELECTED_CLASS} {`,
+    '  outline: 3px solid #1677ff !important;',
+    '  outline-offset: 2px !important;',
+    '  cursor: crosshair !important;',
+    '  transition: outline-color 0.15s ease, outline-width 0.15s ease;',
+    '}',
+  ].join('\n')
+
+  ;(doc.head || doc.documentElement).appendChild(styleElement)
+}
 
 const buildVisualEditorBootstrapScript = () => {
   const messageType = JSON.stringify(VISUAL_EDITOR_MESSAGE_TYPE)
+  const styleId = JSON.stringify(VISUAL_EDITOR_STYLE_ID)
+  const hoverClass = JSON.stringify(VISUAL_EDITOR_HOVER_CLASS)
+  const selectedClass = JSON.stringify(VISUAL_EDITOR_SELECTED_CLASS)
 
   return `
 (function () {
   var MESSAGE_TYPE = ${messageType};
-  var STYLE_ID = 'ai-zero-code-platform-visual-editor-style';
-  var HOVER_CLASS = 'ai-zero-code-platform-visual-editor-hover';
-  var SELECTED_CLASS = 'ai-zero-code-platform-visual-editor-selected';
+  var STYLE_ID = ${styleId};
+  var HOVER_CLASS = ${hoverClass};
+  var SELECTED_CLASS = ${selectedClass};
   var IGNORED_TAGS = {
     html: true,
     body: true,
@@ -170,6 +325,16 @@ const buildVisualEditorBootstrapScript = () => {
     );
   };
 
+  var postReady = function () {
+    window.parent.postMessage(
+      {
+        type: MESSAGE_TYPE,
+        action: 'ready'
+      },
+      '*',
+    );
+  };
+
   var selectElement = function (element) {
     if (!element || isIgnoredElement(element)) {
       return;
@@ -188,7 +353,7 @@ const buildVisualEditorBootstrapScript = () => {
     }
 
     var element = attachedDocument.querySelector(selector);
-    if (element && element instanceof Element) {
+    if (element && element.nodeType === 1) {
       selectElement(element);
     }
   };
@@ -200,15 +365,7 @@ const buildVisualEditorBootstrapScript = () => {
       return null;
     }
 
-    if (!(element instanceof Element)) {
-      if (element.parentElement) {
-        element = element.parentElement;
-      } else {
-        return null;
-      }
-    }
-
-    while (element && element instanceof Element) {
+    while (element && element.nodeType === 1) {
       if (!isIgnoredElement(element)) {
         return element;
       }
@@ -295,6 +452,7 @@ const buildVisualEditorBootstrapScript = () => {
     attachedDocument.addEventListener('mouseout', handleMouseOut, true);
     attachedDocument.addEventListener('click', handleClick, true);
     window.addEventListener('message', handleMessage);
+    postReady();
   };
 
   var detach = function () {
@@ -360,6 +518,102 @@ export const formatVisualEditorSelectionPrompt = (selection: VisualEditorSelecti
 export const useVisualEditor = (previewFrameRef: Ref<HTMLIFrameElement | null>) => {
   const isEditing = ref(false)
   const selectedElement = ref<VisualEditorSelectionInfo | null>(null)
+  let attachedDocument: Document | null = null
+  let detachDocumentListeners: (() => void) | null = null
+  let hoverElement: Element | null = null
+  let selectedDomElement: Element | null = null
+  let syncRetryTimer: number | null = null
+
+  const clearHover = () => {
+    if (hoverElement) {
+      hoverElement.classList.remove(VISUAL_EDITOR_HOVER_CLASS)
+      hoverElement = null
+    }
+  }
+
+  const clearDomSelection = () => {
+    if (selectedDomElement) {
+      selectedDomElement.classList.remove(VISUAL_EDITOR_SELECTED_CLASS)
+      selectedDomElement = null
+    }
+  }
+
+  const applySelection = (element: Element) => {
+    clearHover()
+    clearDomSelection()
+    selectedDomElement = element
+    selectedDomElement.classList.add(VISUAL_EDITOR_SELECTED_CLASS)
+    selectedElement.value = normalizeSelectionInfo(describeEditableElement(element))
+  }
+
+  const attachDocumentListeners = (doc: Document) => {
+    if (attachedDocument === doc) {
+      return
+    }
+
+    if (detachDocumentListeners) {
+      detachDocumentListeners()
+      detachDocumentListeners = null
+    }
+
+    attachedDocument = doc
+    ensureEditableStyles(doc)
+
+    const handleMouseOver = (event: MouseEvent) => {
+      if (!isEditing.value) {
+        return
+      }
+
+      const target = resolveEditableTarget(event.target)
+      if (!target || target === selectedDomElement) {
+        return
+      }
+
+      clearHover()
+      hoverElement = target
+      hoverElement.classList.add(VISUAL_EDITOR_HOVER_CLASS)
+    }
+
+    const handleMouseOut = (event: MouseEvent) => {
+      if (!isEditing.value || !hoverElement) {
+        return
+      }
+
+      const relatedTarget = toEditableElement(event.relatedTarget)
+      if (relatedTarget && hoverElement.contains(relatedTarget)) {
+        return
+      }
+
+      clearHover()
+    }
+
+    const handleClick = (event: MouseEvent) => {
+      if (!isEditing.value) {
+        return
+      }
+
+      const target = resolveEditableTarget(event.target)
+      if (!target) {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+      applySelection(target)
+    }
+
+    doc.addEventListener('mouseover', handleMouseOver, true)
+    doc.addEventListener('mouseout', handleMouseOut, true)
+    doc.addEventListener('click', handleClick, true)
+
+    detachDocumentListeners = () => {
+      doc.removeEventListener('mouseover', handleMouseOver, true)
+      doc.removeEventListener('mouseout', handleMouseOut, true)
+      doc.removeEventListener('click', handleClick, true)
+      clearHover()
+      clearDomSelection()
+    }
+  }
 
   const postControlMessage = (payload: {
     action: 'set-active' | 'clear-selection' | 'select-by-selector'
@@ -375,22 +629,80 @@ export const useVisualEditor = (previewFrameRef: Ref<HTMLIFrameElement | null>) 
     )
   }
 
-  const syncFrameState = () => {
-    postControlMessage({
-      action: 'set-active',
-      active: isEditing.value,
-    })
+  const cancelSyncRetry = () => {
+    if (syncRetryTimer != null) {
+      window.clearTimeout(syncRetryTimer)
+      syncRetryTimer = null
+    }
+  }
 
-    if (selectedElement.value) {
+  const handleWindowMessage = (event: MessageEvent) => {
+    const data = event.data as
+      | {
+          type?: string
+          action?: string
+          selection?: unknown
+        }
+      | undefined
+
+    if (!data || data.type !== VISUAL_EDITOR_MESSAGE_TYPE) {
+      return
+    }
+
+    if (data.action === 'ready') {
       postControlMessage({
-        action: 'select-by-selector',
-        selector: selectedElement.value.selector,
+        action: 'set-active',
+        active: isEditing.value,
       })
+
+      if (selectedElement.value) {
+        postControlMessage({
+          action: 'select-by-selector',
+          selector: selectedElement.value.selector,
+        })
+      }
+
+      return
+    }
+
+    if (data.action === 'selection' && isSelectionInfo(data.selection)) {
+      selectedElement.value = normalizeSelectionInfo(data.selection)
+    }
+  }
+
+  const syncFrameState = () => {
+    const frame = previewFrameRef.value
+    const doc = frame?.contentDocument
+    if (doc) {
+      attachDocumentListeners(doc)
+
+      cancelSyncRetry()
+      postControlMessage({
+        action: 'set-active',
+        active: isEditing.value,
+      })
+
+      if (selectedElement.value) {
+        postControlMessage({
+          action: 'select-by-selector',
+          selector: selectedElement.value.selector,
+        })
+      }
+      return
+    }
+
+    if (syncRetryTimer == null) {
+      syncRetryTimer = window.setTimeout(() => {
+        syncRetryTimer = null
+        syncFrameState()
+      }, 50)
     }
   }
 
   const clearSelectedElement = () => {
     selectedElement.value = null
+    clearHover()
+    clearDomSelection()
     postControlMessage({
       action: 'clear-selection',
     })
@@ -399,10 +711,7 @@ export const useVisualEditor = (previewFrameRef: Ref<HTMLIFrameElement | null>) 
   const setEditing = (nextValue: boolean) => {
     isEditing.value = nextValue
     if (!nextValue) {
-      postControlMessage({
-        action: 'clear-selection',
-      })
-      selectedElement.value = null
+      clearSelectedElement()
     }
     syncFrameState()
   }
@@ -413,24 +722,6 @@ export const useVisualEditor = (previewFrameRef: Ref<HTMLIFrameElement | null>) 
 
   const disableEditing = () => {
     setEditing(false)
-  }
-
-  const handleMessage = (event: MessageEvent) => {
-    const data = event.data as
-      | {
-          type?: string
-          action?: string
-          selection?: VisualEditorSelectionInfo
-        }
-      | undefined
-
-    if (!data || data.type !== VISUAL_EDITOR_MESSAGE_TYPE) {
-      return
-    }
-
-    if (data.action === 'selection' && data.selection && isEditing.value) {
-      selectedElement.value = data.selection
-    }
   }
 
   const stopWatchingFrame = watch(
@@ -447,6 +738,11 @@ export const useVisualEditor = (previewFrameRef: Ref<HTMLIFrameElement | null>) 
       frame.addEventListener('load', handleLoad)
       onCleanup(() => {
         frame.removeEventListener('load', handleLoad)
+        if (detachDocumentListeners) {
+          detachDocumentListeners()
+          detachDocumentListeners = null
+        }
+        attachedDocument = null
       })
 
       if (frame.contentDocument?.readyState === 'complete' || frame.contentDocument?.readyState === 'interactive') {
@@ -456,11 +752,16 @@ export const useVisualEditor = (previewFrameRef: Ref<HTMLIFrameElement | null>) 
     { immediate: true },
   )
 
-  window.addEventListener('message', handleMessage)
+  window.addEventListener('message', handleWindowMessage)
 
   onBeforeUnmount(() => {
+    cancelSyncRetry()
     stopWatchingFrame()
-    window.removeEventListener('message', handleMessage)
+    window.removeEventListener('message', handleWindowMessage)
+    if (detachDocumentListeners) {
+      detachDocumentListeners()
+      detachDocumentListeners = null
+    }
   })
 
   return {
