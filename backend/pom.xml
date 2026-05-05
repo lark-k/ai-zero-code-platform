@@ -126,6 +126,12 @@
             <version>3.18.4</version>
         </dependency>
 
+        <!-- 引入AI工作流LangGraph4j依赖 -->
+        <dependency>
+            <groupId>org.bsc.langgraph4j</groupId>
+            <artifactId>langgraph4j-core</artifactId>
+            <version>1.6.0-rc2</version>
+        </dependency>
 
 
     </dependencies>
