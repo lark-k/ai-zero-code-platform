@@ -19,7 +19,7 @@ import static org.bsc.langgraph4j.StateGraph.START;
  * @Author 梁科
  * @Version 1.0
  * @ Date 2026/5/5 17:51
- * 带有节点和状态的实际业务工作流应用
+ * 带有节点和状态的模拟数据工作流应用
  */
 @Slf4j
 public class WorkflowApp {

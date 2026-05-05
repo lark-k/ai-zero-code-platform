@@ -41,4 +41,14 @@ aliyun:
     access-key-secret: iDl1TWj94J80GMG3f7Gaw0dvtJ1OZ6
     dir-prefix: screenshots/
 
+# Pexels 图片搜索配置
+pexels:
+  api-key: j4XbhOPev26zmL9K2pdPqNEZZPljXQpNu9SYN9XAgAkeHvzsp8UZsSnM
+
+# 阿里云 DashScope 配置
+dashscope:
+  api-key: sk-c289c07edc374dc9bf134d02947bc9b2
+  image-model: wanx2.1-t2i-plus
+
+
 
