@@ -2,6 +2,7 @@ package com.lk.aizerocodeplatform.langgraph4j.state;
 
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.langgraph4j.model.ImageResource;
+import com.lk.aizerocodeplatform.langgraph4j.model.QualityResult;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -76,6 +77,11 @@ public class WorkflowContext implements Serializable {
      * 错误信息
      */
     private String errorMessage;
+
+    /**
+     * 代码质量检查
+     */
+    private QualityResult qualityResult;
 
 
     // ========== 上下文操作方法 ==========
