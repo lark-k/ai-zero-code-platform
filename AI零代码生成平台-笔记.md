@@ -6797,3 +6797,2743 @@ public class JsonMessageStreamHandler {
 
 # 九、AI工作流
 
+> **引入依赖**
+>
+> ```xml
+> <!-- 引入AI工作流LangGraph4j依赖 -->
+>         <dependency>
+>             <groupId>org.bsc.langgraph4j</groupId>
+>             <artifactId>langgraph4j-core</artifactId>
+>             <version>1.6.0-rc2</version>
+>         </dependency>
+> ```
+
+## 1、工作流开发步骤
+
+工作流开发的核心是：节点 + 边 + 状态 + 其他特性
+
+具体步骤：
+
+1. 定义工作流结构（所有工作节点先只是临时输出、也无需记录状态）
+2. 定义状态
+3. 定义工作节点，先通过假数据模拟状态流转
+4. 开发真实的工作节点
+5. 工作流中使用节点，提供完整的工作流服务
+
+## 2、定义工作流结构
+
+根据我们的需求梳理出工作流程：
+
+1. 输入原始 Prompt
+2. 获取图片素材 Agent：通过工具调用从不同的渠道获取图片
+3. 内容图片：pexels 网页搜索
+4. 插画图片：undraw 抓取
+5. 画架构图：文本绘图 + 上传到 OSS
+6. Logo 等设计图片：AI 生成或者 MCP
+7. 提示词增强：关联图片内容到原始提示词
+8. 智能路由 Agent：选用哪种模式生成网站？
+9. 原生 HTML
+10. 原生多文件
+11. Vue 工程
+12. 网站生成 Agent：利用搜集到的图片，根据上一步确认的生成模式来生成网站
+13. 项目构建器：文件保存 / 打包构建
+
+```mermaid
+graph TD
+    A[输入原始 Prompt] --> B[图片素材收集 Agent]
+
+    B --> C[内容图片 Pexels 网页搜索]
+    B --> D[插画图片 Undraw 抓取]
+    B --> E[架构图 文本绘图 + 上传到 OSS]
+    B --> F[Logo 设计图片 AI 生成或 MCP]
+
+    C --> G[提示词增强]
+    D --> G
+    E --> G
+    F --> G
+
+    G --> H[智能路由 Agent]
+    H --> I{选择生成模式}
+
+    I -->|HTML| J[原生 HTML]
+    I -->|多文件| K[原生多文件]
+    I -->|Vue| L[Vue 工程]
+
+    J --> M[网站生成 Agent]
+    K --> M
+    L --> M
+
+    M --> N[项目构建器]
+
+    N --> O[文件保存]
+    N --> P[打包构建]
+
+    O --> Q[完成]
+    P --> Q
+
+```
+
+
+
+## 3、跑通不带业务逻辑的工作流执行流程
+
+### 定义简化版工作流结构代码
+
+**得到简化版的工作流结构代码如下，存放到 `langgraph4j` 包下：**
+
+```java
+/**
+ * 简化版网站生成工作流应用 - 使用 MessagesState
+ */
+@Slf4j
+public class SimpleWorkflowApp {
+
+    /**
+     * 创建工作节点的通用方法
+     */
+    static AsyncNodeAction<MessagesState<String>> makeNode(String message) {
+        return node_async(state -> {
+            log.info("执行节点: {}", message);
+            return Map.of("messages", message);
+        });
+    }
+
+    public static void main(String[] args) throws GraphStateException {
+        // 创建工作流图
+        CompiledGraph<MessagesState<String>> workflow = new MessagesStateGraph<String>()
+                // 添加节点
+                .addNode("image_collector", makeNode("获取图片素材"))
+                .addNode("prompt_enhancer", makeNode("增强提示词"))
+                .addNode("router", makeNode("智能路由选择"))
+                .addNode("code_generator", makeNode("网站代码生成"))
+                .addNode("project_builder", makeNode("项目构建"))
+
+                // 添加边
+                .addEdge(START, "image_collector")                // 开始 -> 图片收集
+                .addEdge("image_collector", "prompt_enhancer")    // 图片收集 -> 提示词增强
+                .addEdge("prompt_enhancer", "router")             // 提示词增强 -> 智能路由
+                .addEdge("router", "code_generator")              // 智能路由 -> 代码生成
+                .addEdge("code_generator", "project_builder")     // 代码生成 -> 项目构建
+                .addEdge("project_builder", END)                  // 项目构建 -> 结束
+
+                // 编译工作流
+                .compile();
+
+        log.info("开始执行工作流");
+
+        GraphRepresentation graph = workflow.getGraph(GraphRepresentation.Type.MERMAID);
+        log.info("工作流图: \n{}", graph.content());
+
+        // 执行工作流
+        int stepCounter = 1;
+        for (NodeOutput<MessagesState<String>> step : workflow.stream(Map.of())) {
+            log.info("--- 第 {} 步完成 ---", stepCounter);
+            log.info("步骤输出: {}", step);
+            stepCounter++;
+        }
+
+        log.info("工作流执行完成！");
+    }
+}
+
+```
+
+上述代码的几个关键：
+
+1. 使用了 LangGraph4j 内置的 `MessageState` 消息列表作为状态
+2. 直接提供了一个创建节点的方法，每个工作节点都只是打印个日志，便于快速验证工作流结构
+3. 通过可视化能力打印出工作流图的结构
+
+### 定义状态
+
+**在 `langgraph4j.state` 包下新建工作流上下文类：**
+
+```java
+/**
+ * 工作流上下文 - 存储所有状态信息
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class WorkflowContext implements Serializable {
+
+    /**
+     * WorkflowContext 在 MessagesState 中的存储key
+     */
+    public static final String WORKFLOW_CONTEXT_KEY = "workflowContext";
+
+    /**
+     * 当前执行步骤
+     */
+    private String currentStep;
+
+    /**
+     * 用户原始输入的提示词
+     */
+    private String originalPrompt;
+
+    /**
+     * 图片资源字符串
+     */
+    private String imageListStr;
+
+    /**
+     * 图片资源列表
+     */
+    private List<ImageResource> imageList;
+
+    /**
+     * 增强后的提示词
+     */
+    private String enhancedPrompt;
+
+    /**
+     * 代码生成类型
+     */
+    private CodeGenTypeEnum generationType;
+
+    /**
+     * 生成的代码目录
+     */
+    private String generatedCodeDir;
+
+    /**
+     * 构建成功的目录
+     */
+    private String buildResultDir;
+
+    /**
+     * 错误信息
+     */
+    private String errorMessage;
+
+    @Serial
+    private static final long serialVersionUID = 1L;
+
+    // ========== 上下文操作方法 ==========
+
+    /**
+     * 从 MessagesState 中获取 WorkflowContext
+     */
+    public static WorkflowContext getContext(MessagesState<String> state) {
+        return (WorkflowContext) state.data().get(WORKFLOW_CONTEXT_KEY);
+    }
+
+    /**
+     * 将 WorkflowContext 保存到 MessagesState 中
+     */
+    public static Map<String, Object> saveContext(WorkflowContext context) {
+        return Map.of(WORKFLOW_CONTEXT_KEY, context);
+    }
+}
+
+```
+
+**在 `langgraph4j.model` 包下新建图片列表类：**
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.model;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.io.Serial;
+import java.io.Serializable;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 17:28
+ * 图片资源对象
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class ImageResource implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L;
+
+    /**
+     * 图片类别
+     */
+    private ImageCategoryEnum category;
+
+    /**
+     * 图片描述
+     */
+    private String description;
+
+    /**
+     * 图片地址
+     */
+    private String url;
+
+}
+
+
+```
+
+**在 `langgraph4j.model` 包下新建图片类型枚举类：**
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.model;
+
+import cn.hutool.core.util.ObjUtil;
+import lombok.Getter;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 17:30
+ */
+@Getter
+public enum ImageCategoryEnum {
+
+    CONTENT("内容图片", "CONTENT"),
+    LOGO("LOGO图片", "LOGO"),
+    ILLUSTRATION("插画图片", "ILLUSTRATION"),
+    ARCHITECTURE("架构图片", "ARCHITECTURE");
+
+
+    private final String text;
+
+    private final String value;
+
+    ImageCategoryEnum(String text, String value) {
+        this.text = text;
+        this.value = value;
+    }
+
+    /**
+     * 根据 value 获取枚举
+     *
+     * @param value 枚举值的value
+     * @return 枚举值
+     */
+    public static ImageCategoryEnum getEnumByValue(String value) {
+        if (ObjUtil.isEmpty(value)) {
+            return null;
+        }
+        for (ImageCategoryEnum anEnum : ImageCategoryEnum.values()) {
+            if (anEnum.value.equals(value)) {
+                return anEnum;
+            }
+        }
+        return null;
+    }
+}
+
+
+```
+
+### 定义简化版工作流结构代码（带状态）
+
+完善上一步得到的简单工作流：
+
+1. 创建带状态感知的工作节点（能够读取和设置状态），只需要先获取到 WorkflowContext，修改字段后再保存即可。
+2. 执行工作流时，传入初始上下文对象
+
+```java
+/**
+ * 简化版带状态定义的工作流 - 只定义状态结构，不实现具体流转
+ */
+@Slf4j
+public class SimpleStatefulWorkflowApp {
+
+    /**
+     * 创建带状态感知的工作节点
+     */
+    static AsyncNodeAction<MessagesState<String>> makeStatefulNode(String nodeName, String message) {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            log.info("执行节点: {} - {}", nodeName, message);
+            // 只记录当前步骤，不做具体的状态流转
+            if (context != null) {
+                context.setCurrentStep(nodeName);
+            }
+            return WorkflowContext.saveContext(context);
+        });
+    }
+
+    public static void main(String[] args) throws GraphStateException {
+        // 创建工作流图
+        CompiledGraph<MessagesState<String>> workflow = new MessagesStateGraph<String>()
+                // 添加节点 - 使用带状态感知的节点
+                .addNode("image_collector", makeStatefulNode("image_collector", "获取图片素材"))
+                .addNode("prompt_enhancer", makeStatefulNode("prompt_enhancer", "增强提示词"))
+                .addNode("router", makeStatefulNode("router", "智能路由选择"))
+                .addNode("code_generator", makeStatefulNode("code_generator", "网站代码生成"))
+                .addNode("project_builder", makeStatefulNode("project_builder", "项目构建"))
+
+                // 添加边
+                .addEdge(START, "image_collector")
+                .addEdge("image_collector", "prompt_enhancer")
+                .addEdge("prompt_enhancer", "router")
+                .addEdge("router", "code_generator")
+                .addEdge("code_generator", "project_builder")
+                .addEdge("project_builder", END)
+
+                // 编译工作流
+                .compile();
+
+        // 初始化 WorkflowContext - 只设置基本信息
+        WorkflowContext initialContext = WorkflowContext.builder()
+                .originalPrompt("创建一个鱼皮的个人博客网站")
+                .currentStep("初始化")
+                .build();
+
+        log.info("初始输入: {}", initialContext.getOriginalPrompt());
+        log.info("开始执行工作流");
+
+        // 显示工作流图
+        GraphRepresentation graph = workflow.getGraph(GraphRepresentation.Type.MERMAID);
+        log.info("工作流图:\n{}", graph.content());
+
+        // 执行工作流
+        int stepCounter = 1;
+        for (NodeOutput<MessagesState<String>> step : workflow.stream(Map.of(WorkflowContext.WORKFLOW_CONTEXT_KEY, initialContext))) {
+            log.info("--- 第 {} 步完成 ---", stepCounter);
+            // 显示当前状态
+            WorkflowContext currentContext = WorkflowContext.getContext(step.state());
+            if (currentContext != null) {
+                log.info("当前步骤上下文: {}", currentContext);
+            }
+            stepCounter++;
+        }
+        log.info("工作流执行完成！");
+    }
+}
+
+```
+
+### 定义工作节点
+
+**在 `langgraph4j.node` 包下新建每一个步骤对应的工作节点，每个节点中只需要 Mock 一些假数据来模拟状态流转，不用真正实现业务逻辑。**
+
+图片收集节点：
+
+```java
+@Slf4j
+public class ImageCollectorNode {
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            log.info("执行节点: 图片收集");
+            
+            // TODO: 实际执行图片收集逻辑
+            
+            // 简单的假数据
+            List<ImageResource> imageList = Arrays.asList(
+                ImageResource.builder()
+                    .category(ImageCategoryEnum.CONTENT)
+                    .description("假数据图片1")
+                    .url("https://www.codefather.cn/logo.png")
+                    .build(),
+                ImageResource.builder()
+                    .category(ImageCategoryEnum.LOGO)
+                    .description("假数据图片2")
+                    .url("https://www.codefather.cn/logo.png")
+                    .build()
+            );
+            
+            // 更新状态
+            context.setCurrentStep("图片收集");
+            context.setImageList(imageList);
+            log.info("图片收集完成，共收集 {} 张图片", imageList.size());
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+提示词增强节点：
+
+```java
+@Slf4j
+public class PromptEnhancerNode {
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            log.info("执行节点: 提示词增强");
+            
+            // TODO: 实际执行提示词增强逻辑
+            
+            // 简单的假数据
+            String enhancedPrompt = "这是增强后的假数据提示词";
+            
+            // 更新状态
+            context.setCurrentStep("提示词增强");
+            context.setEnhancedPrompt(enhancedPrompt);
+            log.info("提示词增强完成");
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+智能路由节点：
+
+```java
+@Slf4j
+public class RouterNode {
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            log.info("执行节点: 智能路由");
+            
+            // TODO: 实际执行智能路由逻辑
+            
+            // 简单的假数据
+            CodeGenTypeEnum generationType = CodeGenTypeEnum.HTML;
+            // 更新状态
+            context.setCurrentStep("智能路由");
+            context.setGenerationType(generationType);
+            log.info("路由决策完成，选择类型: {}", generationType.getText());
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+代码生成节点：
+
+```java
+@Slf4j
+public class CodeGeneratorNode {
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            log.info("执行节点: 代码生成");
+            
+            // TODO: 实际执行代码生成逻辑
+            
+            // 简单的假数据
+            String generatedCodeDir = "/tmp/generated/fake-code";
+            // 更新状态
+            context.setCurrentStep("代码生成");
+            context.setGeneratedCodeDir(generatedCodeDir);
+            log.info("代码生成完成，目录: {}", generatedCodeDir);
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+项目构建节点：
+
+```java
+@Slf4j
+public class ProjectBuilderNode {
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            log.info("执行节点: 项目构建");
+            
+            // TODO: 实际执行项目构建逻辑
+            
+            // 简单的假数据
+            String buildResultDir = "/tmp/build/fake-build";
+            
+            // 更新状态
+            context.setCurrentStep("项目构建");
+            context.setBuildResultDir(buildResultDir);
+            log.info("项目构建完成，结果目录: {}", buildResultDir);
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+### 定义工作流结构代码（带状态+节点）（模拟数据）
+
+```java
+@Slf4j
+public class WorkflowApp {
+
+    public static void main(String[] args) throws GraphStateException {
+        // 创建工作流图
+        CompiledGraph<MessagesState<String>> workflow = new MessagesStateGraph<String>()
+                // 添加节点 - 使用真实的工作节点
+                .addNode("image_collector", ImageCollectorNode.create())
+                .addNode("prompt_enhancer", PromptEnhancerNode.create())
+                .addNode("router", RouterNode.create())
+                .addNode("code_generator", CodeGeneratorNode.create())
+                .addNode("project_builder", ProjectBuilderNode.create())
+                // 添加边
+                .addEdge(START, "image_collector")
+                .addEdge("image_collector", "prompt_enhancer")
+                .addEdge("prompt_enhancer", "router")
+                .addEdge("router", "code_generator")
+                .addEdge("code_generator", "project_builder")
+                .addEdge("project_builder", END)
+                // 编译工作流
+                .compile();
+
+        // 初始化 WorkflowContext - 只设置基本信息
+        WorkflowContext initialContext = WorkflowContext.builder()
+                .originalPrompt("创建一个鱼皮的个人博客网站")
+                .currentStep("初始化")
+                .build();
+        log.info("初始输入: {}", initialContext.getOriginalPrompt());
+        log.info("开始执行工作流");
+
+        // 显示工作流图
+        GraphRepresentation graph = workflow.getGraph(GraphRepresentation.Type.MERMAID);
+        log.info("工作流图:\n{}", graph.content());
+
+        // 执行工作流
+        int stepCounter = 1;
+        for (NodeOutput<MessagesState<String>> step : workflow.stream(Map.of(WorkflowContext.WORKFLOW_CONTEXT_KEY, initialContext))) {
+            log.info("--- 第 {} 步完成 ---", stepCounter);
+            // 显示当前状态
+            WorkflowContext currentContext = WorkflowContext.getContext(step.state());
+            if (currentContext != null) {
+                log.info("当前步骤上下文: {}", currentContext);
+            }
+            stepCounter++;
+        }
+        log.info("工作流执行完成！");
+    }
+}
+
+```
+
+## 4、跑通带业务逻辑的工作流执行流程
+
+### Spring上下文工具类
+
+```java
+package com.lk.aizerocodeplatform.tools;
+
+import org.springframework.beans.BeansException;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
+import org.springframework.stereotype.Component;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 23:51
+ * Spring上下文工具类
+ * 用于在静态方法中获取Spring Bean
+ */
+@Component
+public class SpringContextUtil implements ApplicationContextAware {
+
+    private static ApplicationContext applicationContext;
+
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
+        SpringContextUtil.applicationContext = applicationContext;
+    }
+
+    /**
+     * 获取Spring Bean
+     */
+    public static <T> T getBean(Class<T> clazz) {
+        return applicationContext.getBean(clazz);
+    }
+
+    /**
+     * 获取Spring Bean
+     */
+    public static Object getBean(String name) {
+        return applicationContext.getBean(name);
+    }
+
+    /**
+     * 根据名称和类型获取Spring Bean
+     */
+    public static <T> T getBean(String name, Class<T> clazz) {
+        return applicationContext.getBean(name, clazz);
+    }
+}
+
+```
+
+
+
+### 图片收集节点
+
+#### 1. 内容图片收集工具
+
+```yaml
+# Pexels 图片搜索配置
+pexels:
+  api-key: j4XbhOPev26zmL9K2pdPqNEZZPljXQpNu9SYN9XAgAkeHvzsp8UZsSnM
+```
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.tools;
+
+import cn.hutool.http.HttpRequest;
+import cn.hutool.http.HttpResponse;
+import cn.hutool.json.JSONArray;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageCategoryEnum;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageResource;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 22:31
+ * pexels图片收集工具
+ */
+@Slf4j
+@Component
+public class ImageSearchTool {
+
+    private static final String PEXELS_API_URL = "https://api.pexels.com/v1/search";
+
+    @Value("${pexels.api-key}")
+    private String pexelsApiKey;
+
+    @Tool("搜索内容相关的图片，用于网站内容展示")
+    public List<ImageResource> searchContentImages(@P("搜索关键词") String query) {
+        List<ImageResource> imageList = new ArrayList<>();
+        int searchCount = 12;
+        // 调用 API，注意释放资源
+        try (HttpResponse response = HttpRequest.get(PEXELS_API_URL)
+                .header("Authorization", pexelsApiKey)
+                .form("query", query)
+                .form("per_page", searchCount)
+                .form("page", 1)
+                .execute()) {
+            if (response.isOk()) {
+                JSONObject result = JSONUtil.parseObj(response.body());
+                JSONArray photos = result.getJSONArray("photos");
+                for (int i = 0; i < photos.size(); i++) {
+                    JSONObject photo = photos.getJSONObject(i);
+                    JSONObject src = photo.getJSONObject("src");
+                    imageList.add(ImageResource.builder()
+                            .category(ImageCategoryEnum.CONTENT)
+                            .description(photo.getStr("alt", query))
+                            .url(src.getStr("medium"))
+                            .build());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Pexels API 调用失败: {}", e.getMessage(), e);
+        }
+        return imageList;
+    }
+}
+```
+
+#### 2. 插画图片收集工具
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.tools;
+
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.http.HttpRequest;
+import cn.hutool.http.HttpResponse;
+import cn.hutool.json.JSONArray;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageCategoryEnum;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageResource;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 22:31
+ * Undraw插画图收集工具
+ */
+@Slf4j
+@Component
+public class UndrawIllustrationTool {
+
+    private static final String UNDRAW_SEARCH_PAGE_URL = "https://undraw.co/search/%s";
+    private static final String NEXT_DATA_PREFIX = "<script id=\"__NEXT_DATA__\" type=\"application/json\">";
+    private static final String NEXT_DATA_SUFFIX = "</script>";
+
+    @Tool("搜索插画图片，用于网站美化和装饰")
+    public List<ImageResource> searchIllustrations(@P("搜索关键词") String query) {
+        List<ImageResource> imageList = new ArrayList<>();
+        if (StrUtil.isBlank(query)) {
+            return imageList;
+        }
+
+        int searchCount = 12;
+        String encodedQuery = URLEncoder.encode(query.trim(), StandardCharsets.UTF_8)
+                .replace("+", "%20");
+        String pageUrl = String.format(UNDRAW_SEARCH_PAGE_URL, encodedQuery);
+
+        try (HttpResponse response = HttpRequest.get(pageUrl).timeout(10000).execute()) {
+            if (!response.isOk()) {
+                log.warn("unDraw search request failed, status={}, query={}", response.getStatus(), query);
+                return imageList;
+            }
+
+            String html = response.body();
+            String nextDataJson = StrUtil.subBetween(html, NEXT_DATA_PREFIX, NEXT_DATA_SUFFIX);
+            if (StrUtil.isBlank(nextDataJson)) {
+                log.warn("unDraw __NEXT_DATA__ not found, query={}", query);
+                return imageList;
+            }
+
+            JSONObject root = JSONUtil.parseObj(nextDataJson);
+            JSONObject props = root.getJSONObject("props");
+            if (props == null) {
+                return imageList;
+            }
+
+            JSONObject pageProps = props.getJSONObject("pageProps");
+            if (pageProps == null) {
+                return imageList;
+            }
+
+            JSONArray initialResults = pageProps.getJSONArray("initialResults");
+            if (initialResults == null || initialResults.isEmpty()) {
+                return imageList;
+            }
+
+            int actualCount = Math.min(searchCount, initialResults.size());
+            for (int i = 0; i < actualCount; i++) {
+                JSONObject illustration = initialResults.getJSONObject(i);
+                String title = illustration.getStr("title", "插画");
+                String media = illustration.getStr("media", "");
+
+                if (StrUtil.isNotBlank(media)) {
+                    imageList.add(ImageResource.builder()
+                            .category(ImageCategoryEnum.ILLUSTRATION)
+                            .description(title)
+                            .url(media)
+                            .build());
+                }
+            }
+        } catch (Exception e) {
+            log.error("搜索插画失败, query={}", query, e);
+        }
+
+        return imageList;
+    }
+}
+
+```
+
+#### 3. 架构图生成工具
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.tools;
+
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.system.SystemUtil;
+import com.lk.aizerocodeplatform.exception.BusinessException;
+import com.lk.aizerocodeplatform.exception.ErrorCode;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageCategoryEnum;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageResource;
+import com.lk.aizerocodeplatform.service.OssUploadService;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * 将Mermaid代码转换为架构图图片并上传到阿里云oss工具
+ * @author LK
+ */
+@Slf4j
+@Component
+public class MermaidDiagramTool {
+
+    @Resource
+    private OssUploadService ossUploadService;
+
+    @Tool("将 Mermaid 代码转换为架构图图片，用于展示系统结构和技术关系")
+    public List<ImageResource> generateMermaidDiagram(@P("Mermaid 图表代码") String mermaidCode,
+                                                      @P("架构图描述") String description) {
+        if (StrUtil.isBlank(mermaidCode)) {
+            return new ArrayList<>();
+        }
+
+        File diagramFile = null;
+        try {
+            diagramFile = convertMermaidToPng(mermaidCode);
+            String ossUrl = ossUploadService.uploadCompressedScreenshot(diagramFile.getAbsolutePath());
+            if (StrUtil.isNotBlank(ossUrl)) {
+                return Collections.singletonList(ImageResource.builder()
+                        .category(ImageCategoryEnum.ARCHITECTURE)
+                        .description(description)
+                        .url(ossUrl)
+                        .build());
+            }
+            log.warn("Mermaid 图片上传 OSS 成功返回空地址，description={}", description);
+        } catch (Exception e) {
+            log.error("生成架构图失败: {}", e.getMessage(), e);
+        } finally {
+            if (diagramFile != null) {
+                FileUtil.del(diagramFile);
+            }
+        }
+        return new ArrayList<>();
+    }
+
+    /**
+     * 将 Mermaid 代码转换为 png 图片
+     */
+    private File convertMermaidToPng(String mermaidCode) {
+        File tempInputFile = null;
+        File tempOutputFile = null;
+        File tempPuppeteerConfigFile = null;
+
+        try {
+            tempInputFile = FileUtil.createTempFile("mermaid_input_", ".mmd", true);
+            FileUtil.writeUtf8String(mermaidCode, tempInputFile);
+
+            tempOutputFile = FileUtil.createTempFile("mermaid_output_", ".png", true);
+
+            List<String> command = new ArrayList<>();
+            command.add(SystemUtil.getOsInfo().isWindows() ? "mmdc.cmd" : "mmdc");
+            command.add("-i");
+            command.add(tempInputFile.getAbsolutePath());
+            command.add("-o");
+            command.add(tempOutputFile.getAbsolutePath());
+            command.add("-b");
+            command.add("transparent");
+
+            String browserExecutablePath = resolveBrowserExecutablePath();
+            if (StrUtil.isNotBlank(browserExecutablePath)) {
+                tempPuppeteerConfigFile = createPuppeteerConfigFile(browserExecutablePath);
+                command.add("-p");
+                command.add(tempPuppeteerConfigFile.getAbsolutePath());
+                log.info("Mermaid CLI 使用浏览器: {}", browserExecutablePath);
+            } else {
+                log.warn("未找到可用的 Chrome/Edge 路径，将使用 mmdc 默认浏览器配置");
+            }
+
+            CommandResult result = exec(command);
+
+            if (result.exitCode != 0) {
+                throw new BusinessException(
+                        ErrorCode.SYSTEM_ERROR,
+                        "Mermaid CLI 执行失败，exitCode=" + result.exitCode + "，输出信息：" + result.output
+                );
+            }
+
+            if (!tempOutputFile.exists() || tempOutputFile.length() == 0) {
+                throw new BusinessException(
+                        ErrorCode.SYSTEM_ERROR,
+                        "Mermaid CLI 执行成功但未生成有效 SVG 文件，输出信息：" + result.output
+                );
+            }
+
+            return tempOutputFile;
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Mermaid 转换失败：" + e.getMessage());
+        } finally {
+            if (tempInputFile != null) {
+                FileUtil.del(tempInputFile);
+            }
+            if (tempPuppeteerConfigFile != null) {
+                FileUtil.del(tempPuppeteerConfigFile);
+            }
+        }
+    }
+
+    /**
+     * 优先级：
+     * 1. 环境变量 PUPPETEER_EXECUTABLE_PATH
+     * 2. 环境变量 MERMAID_BROWSER_PATH
+     * 3. Windows 默认安装路径下的 Edge / Chrome
+     */
+    private String resolveBrowserExecutablePath() {
+        String envPath = System.getenv("PUPPETEER_EXECUTABLE_PATH");
+        if (StrUtil.isNotBlank(envPath) && FileUtil.exist(envPath)) {
+            return envPath;
+        }
+
+        String mermaidBrowserPath = System.getenv("MERMAID_BROWSER_PATH");
+        if (StrUtil.isNotBlank(mermaidBrowserPath) && FileUtil.exist(mermaidBrowserPath)) {
+            return mermaidBrowserPath;
+        }
+
+        if (SystemUtil.getOsInfo().isWindows()) {
+            List<String> candidates = List.of(
+                    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+                    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+                    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+            );
+            for (String path : candidates) {
+                if (FileUtil.exist(path)) {
+                    return path;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private File createPuppeteerConfigFile(String browserExecutablePath) {
+        File configFile = FileUtil.createTempFile("mermaid_puppeteer_", ".json", true);
+        String json = """
+                {
+                  "executablePath": "%s",
+                  "args": ["--no-sandbox", "--disable-setuid-sandbox"]
+                }
+                """.formatted(browserExecutablePath.replace("\\", "\\\\"));
+        FileUtil.writeUtf8String(json, configFile);
+        return configFile;
+    }
+
+    private CommandResult exec(List<String> command) throws Exception {
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        processBuilder.redirectErrorStream(true);
+
+        Process process = processBuilder.start();
+        String output;
+        try (InputStream inputStream = process.getInputStream();
+             ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            inputStream.transferTo(outputStream);
+            output = outputStream.toString(StandardCharsets.UTF_8);
+        }
+
+        int exitCode = process.waitFor();
+        log.info("执行 Mermaid 命令: {}", String.join(" ", command));
+        log.info("Mermaid CLI 输出: {}", output);
+
+        return new CommandResult(exitCode, output);
+    }
+
+    private record CommandResult(int exitCode, String output) {
+    }
+}
+
+```
+
+#### 4. logo图片生成工具
+
+```xml
+<!-- 阿里云 DashScope SDK -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>dashscope-sdk-java</artifactId>
+            <version>2.21.1</version>
+        </dependency>
+```
+
+```yaml
+# 阿里云 DashScope 配置
+dashscope:
+  api-key: sk-c289c07edc374dc9bf134d02947bc9b2
+  image-model: wanx2.1-t2i-plus
+```
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.tools;
+
+import cn.hutool.core.util.StrUtil;
+import com.alibaba.dashscope.aigc.imagesynthesis.ImageSynthesis;
+import com.alibaba.dashscope.aigc.imagesynthesis.ImageSynthesisParam;
+import com.alibaba.dashscope.aigc.imagesynthesis.ImageSynthesisResult;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageCategoryEnum;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageResource;
+import com.lk.aizerocodeplatform.service.OssUploadService;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 23:21
+ * 调用阿里云百炼中的文生图模型根据提示词生成logo工具
+ */
+@Slf4j
+@Component
+public class LogoGeneratorTool {
+
+    @Value("${dashscope.api-key:}")
+    private String dashScopeApiKey;
+
+    @Value("${dashscope.image-model:wan2.2-t2i-flash}")
+    private String imageModel;
+
+    @Resource
+    private OssUploadService ossUploadService;
+
+    @Tool("根据描述生成 Logo 设计图片，用于网站品牌标识")
+    public List<ImageResource> generateLogos(@P("Logo 设计描述，如名称、行业、风格等，尽量详细") String description) {
+        List<ImageResource> logoList = new ArrayList<>();
+        try {
+            // 构建 Logo 设计提示词
+            String logoPrompt = String.format("生成 Logo，Logo 中禁止包含任何文字！Logo 介绍：%s", description);
+            ImageSynthesisParam param = ImageSynthesisParam.builder()
+                    .apiKey(dashScopeApiKey)
+                    .model(imageModel)
+                    .prompt(logoPrompt)
+                    .size("512*512")
+                    .n(1) // 生成 1 张足够，因为 AI 不知道哪张最好
+                    .build();
+            ImageSynthesis imageSynthesis = new ImageSynthesis();
+            ImageSynthesisResult result = imageSynthesis.call(param);
+            if (result != null && result.getOutput() != null && result.getOutput().getResults() != null) {
+                List<Map<String, String>> results = result.getOutput().getResults();
+                for (Map<String, String> imageResult : results) {
+                    String imageUrl = imageResult.get("url");
+                    // 由于使用文生图模型生成后的图片下载链接有过期时间，所以将这个下载链接持久化到oss中
+                    String ossUrl = ossUploadService.uploadImage(imageUrl);
+                    if (StrUtil.isNotBlank(imageUrl)) {
+                        logoList.add(ImageResource.builder()
+                                .category(ImageCategoryEnum.LOGO)
+                                .description(description)
+                                .url(ossUrl)
+                                .build());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("生成 Logo 失败: {}", e.getMessage(), e);
+        }
+        return logoList;
+    }
+}
+
+
+```
+
+#### 5. 构建图片收集AI服务
+
+```markdown
+你是一个专业的图片收集助手。根据用户的网站需求，智能选择并调用相应的工具收集不同类型的图片资源。
+
+你可以根据需要调用下面多个工具，收集全面的图片资源：
+1. searchContentImages - 搜索内容相关图片，用于网站内容展示
+2. searchIllustrations - 搜索插画图片，用于网站美化和装饰
+3. generateArchitectureDiagram - 根据技术主题生成架构图，用于展示系统结构和技术关系
+4. generateLogos - 根据描述生成Logo设计图片，用于网站品牌标识
+
+请根据用户的需求分析，优先选择与用户需求最相关的图片类型：
+- 如果涉及技术、系统、架构等内容，调用 generateArchitectureDiagram 生成架构图
+- 如果需要品牌标识、Logo设计，调用 generateLogos 生成Logo
+- 如果需要内容相关图片，调用 searchContentImages 搜索图片
+- 如果需要装饰性插画，调用 searchIllustrations 搜索插画
+
+你必须按照 JSON 格式输出！
+
+```
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.ai;
+
+import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.UserMessage;
+
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 23:29
+ * AI图片收集服务
+ */
+public interface ImageCollectionService {
+    /**
+     * 根据用户提示词收集所需的图片资源
+     * AI 会根据需求自主选择调用相应的工具
+     */
+    @SystemMessage(fromResource = "prompts/image-collection-system-prompt.txt")
+    String collectImages(@UserMessage String userPrompt);
+}
+
+```
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.ai;
+
+import com.lk.aizerocodeplatform.langgraph4j.tools.ImageSearchTool;
+import com.lk.aizerocodeplatform.langgraph4j.tools.LogoGeneratorTool;
+import com.lk.aizerocodeplatform.langgraph4j.tools.MermaidDiagramTool;
+import com.lk.aizerocodeplatform.langgraph4j.tools.UndrawIllustrationTool;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.service.AiServices;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 23:32
+ * AI图片收集服务工厂
+ */
+@Slf4j
+@Configuration
+public class ImageCollectionServiceFactory {
+
+    @Resource
+    private ChatModel chatModel;
+
+    @Resource
+    private ImageSearchTool imageSearchTool;
+
+    @Resource
+    private UndrawIllustrationTool undrawIllustrationTool;
+
+    @Resource
+    private MermaidDiagramTool mermaidDiagramTool;
+
+    @Resource
+    private LogoGeneratorTool logoGeneratorTool;
+
+    /**
+     * 创建图片收集 AI 服务
+     */
+    @Bean
+    public ImageCollectionService createImageCollectionService() {
+        return AiServices.builder(ImageCollectionService.class)
+                .chatModel(chatModel)
+                .tools(
+                        imageSearchTool,
+                        undrawIllustrationTool,
+                        mermaidDiagramTool,
+                        logoGeneratorTool
+                )
+                .build();
+    }
+}
+```
+
+#### 6. 开发工作节点
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.node;
+
+import com.lk.aizerocodeplatform.langgraph4j.ai.ImageCollectionService;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageCategoryEnum;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageResource;
+import com.lk.aizerocodeplatform.langgraph4j.state.WorkflowContext;
+import com.lk.aizerocodeplatform.tools.SpringContextUtil;
+import lombok.extern.slf4j.Slf4j;
+import org.bsc.langgraph4j.action.AsyncNodeAction;
+import org.bsc.langgraph4j.prebuilt.MessagesState;
+
+import java.util.Arrays;
+import java.util.List;
+
+import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 17:42
+ * 图片收集节点
+ */
+@Slf4j
+public class ImageCollectorNode {
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            String originalPrompt = context.getOriginalPrompt();
+            String imageListStr = "";
+            try {
+                // 获取AI图片收集服务
+                ImageCollectionService imageCollectionService = SpringContextUtil.getBean(ImageCollectionService.class);
+                // 使用 AI 服务进行智能图片收集
+                imageListStr = imageCollectionService.collectImages(originalPrompt);
+            } catch (Exception e) {
+                log.error("图片收集失败: {}", e.getMessage(), e);
+            }
+            // 更新状态
+            context.setCurrentStep("图片收集");
+            context.setImageListStr(imageListStr);
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+```
+
+### 提示词增强节点
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.node;
+
+import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageResource;
+import com.lk.aizerocodeplatform.langgraph4j.state.WorkflowContext;
+import lombok.extern.slf4j.Slf4j;
+import org.bsc.langgraph4j.action.AsyncNodeAction;
+import org.bsc.langgraph4j.prebuilt.MessagesState;
+
+import java.util.List;
+
+import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 17:46
+ * 提示词增强节点
+ */
+@Slf4j
+public class PromptEnhancerNode {
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            log.info("执行节点: 提示词增强");
+            // 获取原始提示词和图片列表
+            String originalPrompt = context.getOriginalPrompt();
+            String imageListStr = context.getImageListStr();
+            List<ImageResource> imageList = context.getImageList();
+            // 构建增强后的提示词
+            StringBuilder enhancedPromptBuilder = new StringBuilder();
+            enhancedPromptBuilder.append(originalPrompt);
+            // 如果有图片资源，则添加图片信息
+            if (CollUtil.isNotEmpty(imageList) || StrUtil.isNotBlank(imageListStr)) {
+                enhancedPromptBuilder.append("\n\n## 可用素材资源\n");
+                enhancedPromptBuilder.append("请在生成网站使用以下图片资源，将这些图片合理地嵌入到网站的相应位置中。\n");
+                if (CollUtil.isNotEmpty(imageList)) {
+                    for (ImageResource image : imageList) {
+                        enhancedPromptBuilder.append("- ")
+                                .append(image.getCategory().getText())
+                                .append("：")
+                                .append(image.getDescription())
+                                .append("（")
+                                .append(image.getUrl())
+                                .append("）\n");
+                    }
+                } else {
+                    enhancedPromptBuilder.append(imageListStr);
+                }
+            }
+            String enhancedPrompt = enhancedPromptBuilder.toString();
+            // 更新状态
+            context.setCurrentStep("提示词增强");
+            context.setEnhancedPrompt(enhancedPrompt);
+            log.info("提示词增强完成，增强后长度: {} 字符", enhancedPrompt.length());
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+```
+
+### 智能路由节点
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.node;
+
+import com.lk.aizerocodeplatform.ai.AiCodeGenTypeRoutingService;
+import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
+import com.lk.aizerocodeplatform.langgraph4j.state.WorkflowContext;
+import com.lk.aizerocodeplatform.tools.SpringContextUtil;
+import lombok.extern.slf4j.Slf4j;
+import org.bsc.langgraph4j.action.AsyncNodeAction;
+import org.bsc.langgraph4j.prebuilt.MessagesState;
+
+import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 17:48
+ * 智能路由节点
+ */
+@Slf4j
+public class RouterNode {
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            log.info("执行节点: 智能路由");
+
+            CodeGenTypeEnum generationType;
+            try {
+                // 获取AI路由服务
+                AiCodeGenTypeRoutingService routingService = SpringContextUtil.getBean(AiCodeGenTypeRoutingService.class);
+                // 根据原始提示词进行智能路由
+                generationType = routingService.routeCodeGenType(context.getOriginalPrompt());
+                log.info("AI智能路由完成，选择类型: {} ({})", generationType.getValue(), generationType.getText());
+            } catch (Exception e) {
+                log.error("AI智能路由失败，使用默认HTML类型: {}", e.getMessage());
+                generationType = CodeGenTypeEnum.HTML;
+            }
+
+            // 更新状态
+            context.setCurrentStep("智能路由");
+            context.setGenerationType(generationType);
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+```
+
+### 代码生成节点
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.node;
+
+import cn.hutool.core.util.RandomUtil;
+import com.lk.aizerocodeplatform.constant.AppConstant;
+import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
+import com.lk.aizerocodeplatform.core.AiCodeGenFacade;
+import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
+import com.lk.aizerocodeplatform.langgraph4j.state.WorkflowContext;
+import com.lk.aizerocodeplatform.tools.SpringContextUtil;
+import lombok.extern.slf4j.Slf4j;
+import org.bsc.langgraph4j.action.AsyncNodeAction;
+import org.bsc.langgraph4j.prebuilt.MessagesState;
+import reactor.core.publisher.Flux;
+
+import java.io.File;
+import java.time.Duration;
+
+import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 17:48
+ * 代码生成节点
+ */
+@Slf4j
+public class CodeGeneratorNode {
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            log.info("执行节点: 代码生成");
+
+            // 使用增强提示词作为发给 AI 的用户消息
+            String userMessage = context.getEnhancedPrompt();
+            CodeGenTypeEnum generationType = context.getGenerationType();
+            // 获取 AI 代码生成外观服务
+            AiCodeGenFacade codeGeneratorFacade = SpringContextUtil.getBean(AiCodeGenFacade.class);
+            log.info("开始生成代码，类型: {} ({})", generationType.getValue(), generationType.getText());
+            // 先使用随机数的 appId (后续再整合到业务中)
+            Long appId = Long.valueOf(RandomUtil.randomNumbers(6));
+            // 调用流式代码生成
+            Flux<String> codeStream = codeGeneratorFacade.generateCodeAndSaveStream(userMessage, generationType, appId);
+            // 同步等待流式输出完成
+            codeStream.blockLast(Duration.ofMinutes(10)); // 最多等待 10 分钟
+            // 根据类型设置生成目录
+            String generatedCodeDir;
+            if (generationType == CodeGenTypeEnum.VUE_PROJECT) {
+                generatedCodeDir = CodeFileSaveConstant.ROOT_PATH
+                        + File.separator
+                        + generationType.getValue()
+                        + "_"
+                        + appId;
+            } else {
+                generatedCodeDir = CodeFileSaveConstant.ROOT_PATH
+                        + File.separator
+                        + appId
+                        + "_"
+                        + generationType.getValue();
+            }
+            log.info("AI 代码生成完成，生成目录: {}", generatedCodeDir);
+
+            // 更新状态
+            context.setCurrentStep("代码生成");
+            context.setGeneratedCodeDir(generatedCodeDir);
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+```
+
+### 项目构建节点
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.node;
+
+import com.lk.aizerocodeplatform.core.builder.VueProjectBuilderd;
+import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
+import com.lk.aizerocodeplatform.exception.BusinessException;
+import com.lk.aizerocodeplatform.exception.ErrorCode;
+import com.lk.aizerocodeplatform.langgraph4j.state.WorkflowContext;
+import com.lk.aizerocodeplatform.tools.SpringContextUtil;
+import lombok.extern.slf4j.Slf4j;
+import org.bsc.langgraph4j.action.AsyncNodeAction;
+import org.bsc.langgraph4j.prebuilt.MessagesState;
+
+import java.io.File;
+
+import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/5 17:49
+ * 项目构建节点
+ */
+@Slf4j
+public class ProjectBuilderNode {
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            log.info("执行节点: 项目构建");
+
+            // 获取必要的参数
+            String generatedCodeDir = context.getGeneratedCodeDir();
+            CodeGenTypeEnum generationType = context.getGenerationType();
+            String buildResultDir;
+            // Vue 项目类型：使用 VueProjectBuilder 进行构建
+            if (generationType == CodeGenTypeEnum.VUE_PROJECT) {
+                try {
+                    VueProjectBuilderd vueBuilder = SpringContextUtil.getBean(VueProjectBuilderd.class);
+                    // 执行 Vue 项目构建（npm install + npm run build）
+                    boolean buildSuccess = vueBuilder.buildProject(generatedCodeDir);
+                    if (buildSuccess) {
+                        // 构建成功，返回 dist 目录路径
+                        buildResultDir = generatedCodeDir + File.separator + "dist";
+                        log.info("Vue 项目构建成功，dist 目录: {}", buildResultDir);
+                    } else {
+                        throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Vue 项目构建失败");
+                    }
+                } catch (Exception e) {
+                    log.error("Vue 项目构建异常: {}", e.getMessage(), e);
+                    buildResultDir = generatedCodeDir; // 异常时返回原路径
+                }
+            } else {
+                // HTML 和 MULTI_FILE 代码生成时已经保存了，直接使用生成的代码目录
+                buildResultDir = generatedCodeDir;
+            }
+
+            // 更新状态
+            context.setCurrentStep("项目构建");
+            context.setBuildResultDir(buildResultDir);
+            log.info("项目构建节点完成，最终目录: {}", buildResultDir);
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+```
+
+### 工作流构建与执行
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j;
+
+import com.lk.aizerocodeplatform.exception.BusinessException;
+import com.lk.aizerocodeplatform.exception.ErrorCode;
+import com.lk.aizerocodeplatform.langgraph4j.node.*;
+import com.lk.aizerocodeplatform.langgraph4j.state.WorkflowContext;
+import lombok.extern.slf4j.Slf4j;
+import org.bsc.langgraph4j.CompiledGraph;
+import org.bsc.langgraph4j.GraphRepresentation;
+import org.bsc.langgraph4j.GraphStateException;
+import org.bsc.langgraph4j.NodeOutput;
+import org.bsc.langgraph4j.prebuilt.MessagesState;
+import org.bsc.langgraph4j.prebuilt.MessagesStateGraph;
+
+import java.util.Map;
+
+import static org.bsc.langgraph4j.StateGraph.END;
+import static org.bsc.langgraph4j.StateGraph.START;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/6 00:06
+ * 代码生成工作流（实际业务工作流应用）
+ */
+@Slf4j
+public class CodeGenWorkflow {
+
+    /**
+     * 创建完整的工作流
+     */
+    public CompiledGraph<MessagesState<String>> createWorkflow() {
+        try {
+            return new MessagesStateGraph<String>()
+                    // 添加节点 - 使用完整实现的节点
+                    .addNode("image_collector", ImageCollectorNode.create())
+                    .addNode("prompt_enhancer", PromptEnhancerNode.create())
+                    .addNode("router", RouterNode.create())
+                    .addNode("code_generator", CodeGeneratorNode.create())
+                    .addNode("project_builder", ProjectBuilderNode.create())
+
+                    // 添加边
+                    .addEdge(START, "image_collector")
+                    .addEdge("image_collector", "prompt_enhancer")
+                    .addEdge("prompt_enhancer", "router")
+                    .addEdge("router", "code_generator")
+                    .addEdge("code_generator", "project_builder")
+                    .addEdge("project_builder", END)
+
+                    // 编译工作流
+                    .compile();
+        } catch (GraphStateException e) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "工作流创建失败");
+        }
+    }
+
+    /**
+     * 执行工作流
+     */
+    public WorkflowContext executeWorkflow(String originalPrompt) {
+        CompiledGraph<MessagesState<String>> workflow = createWorkflow();
+
+        // 初始化 WorkflowContext
+        WorkflowContext initialContext = WorkflowContext.builder()
+                .originalPrompt(originalPrompt)
+                .currentStep("初始化")
+                .build();
+
+        GraphRepresentation graph = workflow.getGraph(GraphRepresentation.Type.MERMAID);
+        log.info("工作流图:\n{}", graph.content());
+        log.info("开始执行代码生成工作流");
+
+        WorkflowContext finalContext = null;
+        int stepCounter = 1;
+        for (NodeOutput<MessagesState<String>> step : workflow.stream(
+                Map.of(WorkflowContext.WORKFLOW_CONTEXT_KEY, initialContext))) {
+            log.info("--- 第 {} 步完成 ---", stepCounter);
+            // 显示当前状态
+            WorkflowContext currentContext = WorkflowContext.getContext(step.state());
+            if (currentContext != null) {
+                finalContext = currentContext;
+                log.info("当前步骤上下文: {}", currentContext);
+            }
+            stepCounter++;
+        }
+        log.info("代码生成工作流执行完成！");
+        return finalContext;
+    }
+}
+```
+
+### 测试
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j;
+
+import com.lk.aizerocodeplatform.langgraph4j.state.WorkflowContext;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+
+@SpringBootTest
+class CodeGenWorkflowTest {
+
+    @Test
+    void testTechBlogWorkflow() {
+        WorkflowContext result = new CodeGenWorkflow().executeWorkflow("创建一个技术博客网站，需要展示编程教程和系统架构");
+        Assertions.assertNotNull(result);
+        System.out.println("生成类型: " + result.getGenerationType());
+        System.out.println("生成的代码目录: " + result.getGeneratedCodeDir());
+        System.out.println("构建结果目录: " + result.getBuildResultDir());
+    }
+
+    @Test
+    void testCorporateWorkflow() {
+        WorkflowContext result = new CodeGenWorkflow().executeWorkflow("创建企业官网，展示公司形象和业务介绍");
+        Assertions.assertNotNull(result);
+        System.out.println("生成类型: " + result.getGenerationType());
+        System.out.println("生成的代码目录: " + result.getGeneratedCodeDir());
+        System.out.println("构建结果目录: " + result.getBuildResultDir());
+    }
+
+    @Test
+    void testVueProjectWorkflow() {
+        WorkflowContext result = new CodeGenWorkflow().executeWorkflow("创建一个Vue前端项目，包含用户管理和数据展示功能");
+        Assertions.assertNotNull(result);
+        System.out.println("生成类型: " + result.getGenerationType());
+        System.out.println("生成的代码目录: " + result.getGeneratedCodeDir());
+        System.out.println("构建结果目录: " + result.getBuildResultDir());
+    }
+
+    @Test
+    void testSimpleHtmlWorkflow() {
+        WorkflowContext result = new CodeGenWorkflow().executeWorkflow("创建一个简单的个人主页，同时带有一个logo图");
+        Assertions.assertNotNull(result);
+        System.out.println("生成类型: " + result.getGenerationType());
+        System.out.println("生成的代码目录: " + result.getGeneratedCodeDir());
+        System.out.println("构建结果目录: " + result.getBuildResultDir());
+    }
+}
+```
+
+## 5、条件边
+
+对于 HTM⁢⁢⁢⁢⁢L 和 MULTI_F‍‍‍‍‍ILE 网站生成类型，‌‌‌‌‌网站生成工作节点中已经‎‎‎‎‎会自动保存网站文件，不‏‏‏‏‏需要进入项目构建节点。
+
+1）工作流新增路由函数和条件边配置：
+
+```java
+.addEdge("router", "code_generator")
+// 使用条件边：根据代码生成类型决定是否需要构建
+.addConditionalEdges("code_generator",
+        edge_async(this::routeBuildOrSkip),
+        Map.of(
+                "build", "project_builder",  // 需要构建的情况
+                "skip_build", END             // 跳过构建直接结束
+        ))
+.addEdge("project_builder", END)
+
+```
+
+2）路由函数决定代码生成后是否需要项目构建：
+
+```java
+private String routeBuildOrSkip(MessagesState<String> state) {
+    WorkflowContext context = WorkflowContext.getContext(state);
+    CodeGenTypeEnum generationType = context.getGenerationType();
+    // HTML 和 MULTI_FILE 类型不需要构建，直接结束
+    if (generationType == CodeGenTypeEnum.HTML || generationType == CodeGenTypeEnum.MULTI_FILE) {
+        return "skip_build";
+    }
+    // VUE_PROJECT 需要构建
+    return "build";
+}
+
+```
+
+3）项目构⁢⁢建工作节点中移除 i‍‍f-else 逻辑：‌
+
+```java
+String buildResultDir;
+// 一定是 Vue 项目类型：使用 VueProjectBuilder 进行构建
+try {
+    VueProjectBuilder vueBuilder = SpringContextUtil.getBean(VueProjectBuilder.class);
+    // 执行 Vue 项目构建（npm install + npm run build）
+    boolean buildSuccess = vueBuilder.buildProject(generatedCodeDir);
+    if (buildSuccess) {
+        // 构建成功，返回 dist 目录路径
+        buildResultDir = generatedCodeDir + File.separator + "dist";
+        log.info("Vue 项目构建成功，dist 目录: {}", buildResultDir);
+    } else {
+        throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Vue 项目构建失败");
+    }
+} catch (Exception e) {
+    log.error("Vue 项目构建异常: {}", e.getMessage(), e);
+    buildResultDir = generatedCodeDir; // 异常时返回原路径
+}
+
+```
+
+这种设计比在⁢⁢⁢⁢⁢ ProjectBuil‍‍‍‍‍derNode 中写 i‌‌‌‌‌f-else 更加优雅，‎‎‎‎‎符合 LangGraph‏‏‏‏‏4j 和工作流的设计理念。
+
+用条件边的优势是：
+
+1. 可视化更清晰：工作流图能直观显示不同路径
+2. 性能更好：直接跳过不需要的节点，避免无用的 Bean 加载
+3. 关注点分离：节点专注业务逻辑，边专注流程控制
+
+## 6、循环边
+
+新增代码质检⁢⁢⁢⁢⁢ Agent 工作节点，‍‍‍‍‍在生成代码后，检验代码是‌‌‌‌‌否有异常、能否正常打包，‎‎‎‎‎如果有异常则返回到网站生‏‏‏‏‏成 Agent 重新生成。
+
+### 定义数据模型
+
+```java
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class QualityResult implements Serializable {
+    
+    @Serial
+    private static final long serialVersionUID = 1L;
+    
+    /**
+     * 是否通过质检
+     */
+    private Boolean isValid;
+    
+    /**
+     * 错误列表
+     */
+    private List<String> errors;
+    
+    /**
+     * 改进建议
+     */
+    private List<String> suggestions;
+}
+
+```
+
+WorkflowContext 状态补充字段：
+
+```java
+/**
+ * 质量检查结果
+ */
+private QualityResult qualityResult;
+```
+
+### 质量检查AI服务
+
+1）编写质量检查 AI 提示词 `code-quality-check-system-prompt.txt`，提示词重点突出 **检查语法错误**，并且强调结构化输出的 JSON 格式。
+
+```markdown
+你是一个专业的代码质量检查专家。你的任务是分析用户提供的网站代码，检查语法错误等方面的问题，确保项目可以正常运行和打包。
+
+## 检查重点
+
+### 1. 语法和结构错误
+- HTML 标签是否正确闭合
+- CSS 语法是否正确
+- JavaScript 语法错误
+- 文件引用路径是否正确
+- 缺失的依赖或资源
+
+### 2. 代码质量
+- 代码结构是否合理
+- 命名规范是否一致
+- 代码重复性检查
+
+### 3. 功能完整性
+- 页面功能是否完整
+- 交互逻辑是否正确
+- 响应式设计检查
+
+## 输出格式
+
+请严格按照以下 JSON 格式返回检查结果：
+
+json
+{
+  "isValid": true/false,
+  "errors": [
+    "具体的错误描述1",
+    "具体的错误描述2"
+  ],
+  "suggestions": [
+    "改进建议1",
+    "改进建议2"
+  ]
+}
+
+
+ ## 判断标准
+
+- isValid = true: 代码无严重语法错误，能够正常运行和打包
+- isValid = false: 存在语法错误、结构问题或其他会导致无法正常运行的问题
+- errors: 必须修复的问题，如语法错误、缺失文件等
+- suggestions: 关于如何修复错误和改进代码的建议
+
+请仔细分析代码，提供专业的质量检查结果。
+
+```
+
+2）开发 AI 服务，利用结构化输出：
+
+```java
+public interface CodeQualityCheckService {
+
+    /**
+     * 检查代码质量
+     * AI 会分析代码并返回质量检查结果
+     */
+    @SystemMessage(fromResource = "prompt/code-quality-check-system-prompt.txt")
+    QualityResult checkCodeQuality(@UserMessage String codeContent);
+}
+
+```
+
+3）开发创建 AI 服务的工厂：
+
+```java
+@Slf4j
+@Configuration
+public class CodeQualityCheckServiceFactory {
+
+    @Resource
+    private ChatModel chatModel;
+
+    /**
+     * 创建代码质量检查 AI 服务
+     */
+    @Bean
+    public CodeQualityCheckService createCodeQualityCheckService() {
+        return AiServices.builder(CodeQualityCheckService.class)
+                .chatModel(chatModel)
+                .build();
+    }
+}
+
+```
+
+### 开发质量检查工作节点
+
+```java
+package com.lk.aizerocodeplatform.langgraph4j.node;
+
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
+import com.lk.aizerocodeplatform.langgraph4j.ai.CodeQualityCheckService;
+import com.lk.aizerocodeplatform.langgraph4j.model.QualityResult;
+import com.lk.aizerocodeplatform.langgraph4j.state.WorkflowContext;
+import com.lk.aizerocodeplatform.tools.SpringContextUtil;
+import lombok.extern.slf4j.Slf4j;
+import org.bsc.langgraph4j.action.AsyncNodeAction;
+import org.bsc.langgraph4j.prebuilt.MessagesState;
+
+import java.io.File;
+import java.util.Arrays;
+import java.util.List;
+
+import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/6 16:38
+ * 代码质量检查节点
+ */
+@Slf4j
+public class CodeQualityCheckNode {
+
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            log.info("执行节点: 代码质量检查");
+            String generatedCodeDir = context.getGeneratedCodeDir();
+            QualityResult qualityResult;
+            try {
+                // 1. 读取并拼接代码文件内容
+                String codeContent = readAndConcatenateCodeFiles(generatedCodeDir);
+                if (StrUtil.isBlank(codeContent)) {
+                    log.warn("未找到可检查的代码文件");
+                    qualityResult = QualityResult.builder()
+                            .isValid(false)
+                            .errors(List.of("未找到可检查的代码文件"))
+                            .suggestions(List.of("请确保代码生成成功"))
+                            .build();
+                } else {
+                    // 2. 调用 AI 进行代码质量检查
+                    CodeQualityCheckService qualityCheckService = SpringContextUtil.getBean(CodeQualityCheckService.class);
+                    qualityResult = qualityCheckService.checkCodeQuality(codeContent);
+                    log.info("代码质量检查完成 - 是否通过: {}", qualityResult.getIsValid());
+                }
+            } catch (Exception e) {
+                log.error("代码质量检查异常: {}", e.getMessage(), e);
+                qualityResult = QualityResult.builder()
+                        .isValid(true) // 异常直接跳到下一个步骤
+                        .build();
+            }
+            // 3. 更新状态
+            context.setCurrentStep("代码质量检查");
+            context.setQualityResult(qualityResult);
+            return WorkflowContext.saveContext(context);
+        });
+    }
+
+    /**
+     * 需要检查的文件扩展名
+     */
+    private static final List<String> CODE_EXTENSIONS = Arrays.asList(
+            ".html", ".htm", ".css", ".js", ".json", ".vue", ".ts", ".jsx", ".tsx"
+    );
+
+    /**
+     * 读取并拼接代码目录下的所有代码文件
+     */
+    private static String readAndConcatenateCodeFiles(String codeDir) {
+        if (StrUtil.isBlank(codeDir)) {
+            return "";
+        }
+        File directory = new File(codeDir);
+        if (!directory.exists() || !directory.isDirectory()) {
+            log.error("代码目录不存在或不是目录: {}", codeDir);
+            return "";
+        }
+        StringBuilder codeContent = new StringBuilder();
+        codeContent.append("# 项目文件结构和代码内容\n\n");
+        // 使用 Hutool 的 walkFiles 方法遍历所有文件
+        FileUtil.walkFiles(directory, file -> {
+            // 过滤条件：跳过隐藏文件、特定目录下的文件、非代码文件
+            if (shouldSkipFile(file, directory)) {
+                return;
+            }
+            if (isCodeFile(file)) {
+                String relativePath = FileUtil.subPath(directory.getAbsolutePath(), file.getAbsolutePath());
+                codeContent.append("## 文件: ").append(relativePath).append("\n\n");
+                String fileContent = FileUtil.readUtf8String(file);
+                codeContent.append(fileContent).append("\n\n");
+            }
+        });
+        return codeContent.toString();
+    }
+
+    /**
+     * 判断是否应该跳过此文件
+     */
+    private static boolean shouldSkipFile(File file, File rootDir) {
+        String relativePath = FileUtil.subPath(rootDir.getAbsolutePath(), file.getAbsolutePath());
+        // 跳过隐藏文件
+        if (file.getName().startsWith(".")) {
+            return true;
+        }
+        // 跳过特定目录下的文件
+        return relativePath.contains("node_modules" + File.separator) ||
+                relativePath.contains("dist" + File.separator) ||
+                relativePath.contains("target" + File.separator) ||
+                relativePath.contains(".git" + File.separator);
+    }
+
+    /**
+     * 判断是否是需要检查的代码文件
+     */
+    private static boolean isCodeFile(File file) {
+        String fileName = file.getName().toLowerCase();
+        return CODE_EXTENSIONS.stream().anyMatch(fileName::endsWith);
+    }
+
+}
+```
+
+### 修改代码生成节点
+
+代码生成节⁢点要⁢⁢⁢⁢判断状态中有没‍有错误信息，如果‍‍‍‍有‌的话，需要根据错误‎信息构造‌‌‌‌提示词，引‏导 AI 修复错误。‎‎‎‎   
+
+1）编写构⁢⁢⁢⁢⁢造用户消息‍的‍方‍法‍，‍如‌果存‌在质‌检失‌‎败结‌‎果则添‎加‏错误‎修‏复信‎息‏：
+
+```java
+/**
+ * 构造用户消息，如果存在质检失败结果则添加错误修复信息
+ */
+private static String buildUserMessage(WorkflowContext context) {
+    String userMessage = context.getEnhancedPrompt();
+    // 检查是否存在质检失败结果
+    QualityResult qualityResult = context.getQualityResult();
+    if (isQualityCheckFailed(qualityResult)) {
+        // 直接将错误修复信息作为新的提示词（起到了修改的作用）
+        userMessage = buildErrorFixPrompt(qualityResult);
+    }
+    return userMessage;
+}
+
+/**
+ * 判断质检是否失败
+ */
+private static boolean isQualityCheckFailed(QualityResult qualityResult) {
+    return qualityResult != null && 
+           !qualityResult.getIsValid() && 
+           qualityResult.getErrors() != null && 
+           !qualityResult.getErrors().isEmpty();
+}
+
+/**
+ * 构造错误修复提示词
+ */
+private static String buildErrorFixPrompt(QualityResult qualityResult) {
+    StringBuilder errorInfo = new StringBuilder();
+    errorInfo.append("\n\n## 上次生成的代码存在以下问题，请修复：\n");
+    // 添加错误列表
+    qualityResult.getErrors().forEach(error -> 
+        errorInfo.append("- ").append(error).append("\n"));
+    // 添加修复建议（如果有）
+    if (qualityResult.getSuggestions() != null && !qualityResult.getSuggestions().isEmpty()) {
+        errorInfo.append("\n## 修复建议：\n");
+        qualityResult.getSuggestions().forEach(suggestion -> 
+            errorInfo.append("- ").append(suggestion).append("\n"));
+    }
+    errorInfo.append("\n请根据上述问题和建议重新生成代码，确保修复所有提到的问题。");
+    return errorInfo.toString();
+}
+
+```
+
+2）节点方法中调用构造用户消息：
+
+```java
+// 构造用户消息（包含原始提示词和可能的错误修复信息）
+String userMessage = buildUserMessage(context);
+```
+
+### 修改工作流
+
+1）新增节点和边，质检条件边可以和之前的构建条件边合并：
+
+```java
+.addNode("code_quality_check", CodeQualityCheckNode.create())
+// ...
+.addEdge("code_generator", "code_quality_check")
+// 新增质检条件边：根据质检结果决定下一步
+.addConditionalEdges("code_quality_check",
+        edge_async(this::routeAfterQualityCheck),
+        Map.of(
+                "build", "project_builder",   // 质检通过且需要构建
+                "skip_build", END,            // 质检通过但跳过构建
+                "fail", "code_generator"      // 质检失败，重新生成
+        ))
+```
+
+2）新写一个路由函数，根据质检结果决定下一步，直接复用之前的 `routeBuildOrSkip` 方法：
+
+```java
+private String routeAfterQualityCheck(MessagesState<String> state) {
+    WorkflowContext context = WorkflowContext.getContext(state);
+    QualityResult qualityResult = context.getQualityResult();
+    // 如果质检失败，重新生成代码
+    if (qualityResult == null || !qualityResult.getIsValid()) {
+        log.error("代码质检失败，需要重新生成代码");
+        return "fail";
+    }
+    // 质检通过，使用原有的构建路由逻辑
+    log.info("代码质检通过，继续后续流程");
+    return routeBuildOrSkip(state);
+}
+```
+
+## 7、CompletableFuture并发收集图片（推荐）
+
+1）编写 AI 收集图片的提示词 `image-collection-plan-system-prompt.txt`：
+
+```markdown
+你是一个专业的图片收集规划师。你的任务是分析用户的网站需求，制定合理的图片收集计划。
+
+## 图片类型说明
+
+### 1. 内容图片 (contentImageTasks)
+- 用途：网站的主要内容配图
+- 来源：通过关键词搜索获取
+- 示例：产品图片、场景图片、人物图片等
+
+### 2. 插画图片 (illustrationTasks) 
+- 用途：装饰性插画，提升页面美观度
+- 来源：Undraw 插画库
+- 示例：抽象插画、概念图解等
+
+### 3. 架构图 (diagramTasks)
+- 用途：展示系统架构、流程图等技术图表
+- 来源：通过 Mermaid 代码生成
+- 示例：系统架构图、流程图、组织结构图等
+
+### 4. Logo图片 (logoTasks)
+- 用途：品牌标识、图标等
+- 来源：AI 生成
+- 示例：公司Logo、产品图标等
+
+## 规划原则
+
+1. 需求导向：根据用户描述的网站类型和用途来规划图片
+2. 适量原则：每种类型的图片数量要合理，避免过多或过少
+3. 关键词精准：选择最能体现需求的关键词
+4. 描述清晰：为任务提供清晰的描述说明
+
+## 输出要求
+
+请严格按照以下 JSON 格式返回图片收集计划：
+
+json
+{
+  "contentImageTasks": [
+    {
+      "query": "搜索关键词"
+    }
+  ],
+  "illustrationTasks": [
+    {
+      "query": "插画关键词"
+    }
+  ],
+  "diagramTasks": [
+    {
+      "mermaidCode": "mermaid图表代码",
+      "description": "图表用途描述"
+    }
+  ],
+  "logoTasks": [
+    {
+      "description": "Logo设计描述，如名称、行业、风格等"
+    }
+  ]
+}
+
+
+注意：
+- 如果某种类型的图片不需要，对应数组可以为空
+- 每个任务的 description 要说明图片的具体用途和位置
+- mermaidCode 要是有效的 Mermaid 语法代码
+- 关键词要使用中文或英文，选择搜索效果最好的语言
+```
+
+2）在 `model` 包下定义 `ImageCollectionPlan` 数据模型，用于保存图片收集任务：
+
+```java
+@Data
+public class ImageCollectionPlan implements Serializable {
+    
+    /**
+     * 内容图片搜索任务列表
+     */
+    private List<ImageSearchTask> contentImageTasks;
+    
+    /**
+     * 插画图片搜索任务列表
+     */
+    private List<IllustrationTask> illustrationTasks;
+    
+    /**
+     * 架构图生成任务列表
+     */
+    private List<DiagramTask> diagramTasks;
+    
+    /**
+     * Logo生成任务列表
+     */
+    private List<LogoTask> logoTasks;
+    
+    /**
+     * 内容图片搜索任务
+     * 对应 ImageSearchTool.searchContentImages(String query)
+     */
+    public record ImageSearchTask(String query) implements Serializable {}
+    
+    /**
+     * 插画图片搜索任务
+     * 对应 UndrawIllustrationTool.searchIllustrations(String query)
+     */
+    public record IllustrationTask(String query) implements Serializable {}
+    
+    /**
+     * 架构图生成任务
+     * 对应 MermaidDiagramTool.generateMermaidDiagram(String mermaidCode, String description)
+     */
+    public record DiagramTask(String mermaidCode, String description) implements Serializable {}
+    
+    /**
+     * Logo生成任务
+     * 对应 LogoGeneratorTool.generateLogos(String description)
+     */
+    public record LogoTask(String description) implements Serializable {}
+}
+
+```
+
+上述代码中⁢⁢⁢⁢⁢⁢⁢，使用 re‍c‍o‍r‍‍‍‍d 来‌简化‌每种‌图片‌‌‌‌‎搜集任务‎‎的定义‏。
+
+3）编写图片收集 AI 服务
+
+```java
+public interface ImageCollectionPlanService {
+
+    /**
+     * 根据用户提示词分析需要收集的图片类型和参数
+     */
+    @SystemMessage(fromResource = "prompts/image-collection-plan-system-prompt.txt")
+    ImageCollectionPlan planImageCollection(@UserMessage String userPrompt);
+}
+
+```
+
+4）编写对⁢⁢⁢⁢⁢⁢⁢应的 AI‍‍‍ ‍服‍务‍工‍厂‌‌‌，暂‌时先‌复用‌‎‎‎ C‌‎hat‎M‏‏‏od‎e‏l ‎模‏型：
+
+```java
+@Configuration
+public class ImageCollectionPlanServiceFactory {
+
+    @Resource
+    private ChatModel chatModel;
+
+    @Bean
+    public ImageCollectionPlanService createImageCollectionPlanService() {
+        return AiServices.builder(ImageCollectionPlanService.class)
+                .chatModel(chatModel)
+                .build();
+    }
+}
+
+```
+
+5）直接修改图⁢⁢⁢⁢⁢⁢⁢片收集工作节点。先调‍‍‍‍‍‍‍用 AI 进行规划，‌‌‌‌‌‌‌然后并发收集图片并汇‎‎‎‎‎‎‎总，最后设置 ima‏‏‏‏‏‏‏geList 状态
+
+```java
+@Slf4j
+public class ImageCollectorNode {
+
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            String originalPrompt = context.getOriginalPrompt();
+            List<ImageResource> collectedImages = new ArrayList<>();
+            
+            try {
+                // 第一步：获取图片收集计划
+                ImageCollectionPlanService planService = SpringContextUtil.getBean(ImageCollectionPlanService.class);
+                ImageCollectionPlan plan = planService.planImageCollection(originalPrompt);
+                log.info("获取到图片收集计划，开始并发执行");
+                
+                // 第二步：并发执行各种图片收集任务
+                List<CompletableFuture<List<ImageResource>>> futures = new ArrayList<>();
+                // 并发执行内容图片搜索
+                if (plan.getContentImageTasks() != null) {
+                    ImageSearchTool imageSearchTool = SpringContextUtil.getBean(ImageSearchTool.class);
+                    for (ImageCollectionPlan.ImageSearchTask task : plan.getContentImageTasks()) {
+                        futures.add(CompletableFuture.supplyAsync(() -> 
+                            imageSearchTool.searchContentImages(task.query())));
+                    }
+                }
+                // 并发执行插画图片搜索
+                if (plan.getIllustrationTasks() != null) {
+                    UndrawIllustrationTool illustrationTool = SpringContextUtil.getBean(UndrawIllustrationTool.class);
+                    for (ImageCollectionPlan.IllustrationTask task : plan.getIllustrationTasks()) {
+                        futures.add(CompletableFuture.supplyAsync(() -> 
+                            illustrationTool.searchIllustrations(task.query())));
+                    }
+                }
+                // 并发执行架构图生成
+                if (plan.getDiagramTasks() != null) {
+                    MermaidDiagramTool diagramTool = SpringContextUtil.getBean(MermaidDiagramTool.class);
+                    for (ImageCollectionPlan.DiagramTask task : plan.getDiagramTasks()) {
+                        futures.add(CompletableFuture.supplyAsync(() -> 
+                            diagramTool.generateMermaidDiagram(task.mermaidCode(), task.description())));
+                    }
+                }
+                // 并发执行Logo生成
+                if (plan.getLogoTasks() != null) {
+                    LogoGeneratorTool logoTool = SpringContextUtil.getBean(LogoGeneratorTool.class);
+                    for (ImageCollectionPlan.LogoTask task : plan.getLogoTasks()) {
+                        futures.add(CompletableFuture.supplyAsync(() -> 
+                            logoTool.generateLogos(task.description())));
+                    }
+                }
+                
+                // 等待所有任务完成并收集结果
+                CompletableFuture<Void> allTasks = CompletableFuture.allOf(
+                    futures.toArray(new CompletableFuture[0]));
+                allTasks.join();
+                // 收集所有结果
+                for (CompletableFuture<List<ImageResource>> future : futures) {
+                    List<ImageResource> images = future.get();
+                    if (images != null) {
+                        collectedImages.addAll(images);
+                    }
+                }
+                log.info("并发图片收集完成，共收集到 {} 张图片", collectedImages.size());
+            } catch (Exception e) {
+                log.error("图片收集失败: {}", e.getMessage(), e);
+            }
+            // 更新状态
+            context.setCurrentStep("图片收集");
+            context.setImageList(collectedImages);
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+## 8、LangGraph4j并发收集图片
+
+利用 LangGraph4j 的 [Parallel Branch](https://langgraph4j.github.io/langgraph4j/core/parallel-branch/) 特性，将每个图片收集工具都定义为一个工作节点，这些工作节点可并发执行。
+
+工作流程变为：图片规划 => 并发收集 => 图片聚合
+
+![image-20260506225042154](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260506225042154.png)
+
+WorkflowContext 状态新增字段：
+
+```java
+/**
+ * 图片收集计划
+ */
+private ImageCollectionPlan imageCollectionPlan;
+
+
+/**
+ * 并发图片收集的中间结果字段
+ */
+private List<ImageResource> contentImages;
+private List<ImageResource> illustrations;
+private List<ImageResource> diagrams;
+private List<ImageResource> logos;
+
+```
+
+在 `node.concurrent` 包下开发并发相关的新工作节点，包括：
+
+- 1 个规划节点
+
+- 4 个收集节点
+
+- 1 个汇总节点
+
+  ![image-20260506225350551](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260506225350551.png)
+
+1）图片计⁢⁢⁢⁢⁢⁢⁢划节点：分‍‍‍析‍用‍户‍需‍求‌‌‌，生‌成图‌片收‌‎‎‎集计‌‎划，为‎并‏‏‏发执‎行‏做准‎备
+
+```java
+@Slf4j
+public class ImagePlanNode {
+
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            String originalPrompt = context.getOriginalPrompt();
+            try {
+                // 获取图片收集计划服务
+                ImageCollectionPlanService planService = SpringContextUtil.getBean(ImageCollectionPlanService.class);
+                ImageCollectionPlan plan = planService.planImageCollection(originalPrompt);
+                log.info("生成图片收集计划，准备启动并发分支");
+                // 将计划存储到上下文中
+                context.setImageCollectionPlan(plan);
+                context.setCurrentStep("图片计划");
+            } catch (Exception e) {
+                log.error("图片计划生成失败: {}", e.getMessage(), e);
+            }
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+2）内容图⁢⁢⁢⁢⁢⁢⁢片收集节点：‍‍‍‍并‍发‍执‍行内容‌‌‌‌图片‌搜索‌任务‌‎‎‎‎（直接‎调用之‎前‏‏‏‏已开‎发‏的工具）
+
+```java
+@Slf4j
+public class ContentImageCollectorNode {
+
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            List<ImageResource> contentImages = new ArrayList<>();
+            try {
+                ImageCollectionPlan plan = context.getImageCollectionPlan();
+                if (plan != null && plan.getContentImageTasks() != null) {
+                    ImageSearchTool imageSearchTool = SpringContextUtil.getBean(ImageSearchTool.class);
+                    log.info("开始并发收集内容图片，任务数: {}", plan.getContentImageTasks().size());
+                    for (ImageCollectionPlan.ImageSearchTask task : plan.getContentImageTasks()) {
+                        List<ImageResource> images = imageSearchTool.searchContentImages(task.query());
+                        if (images != null) {
+                            contentImages.addAll(images);
+                        }
+                    }
+                    log.info("内容图片收集完成，共收集到 {} 张图片", contentImages.size());
+                }
+            } catch (Exception e) {
+                log.error("内容图片收集失败: {}", e.getMessage(), e);
+            }
+            // 将收集到的图片存储到上下文的中间字段中
+            context.setContentImages(contentImages);
+            context.setCurrentStep("内容图片收集");
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+3）插画图片收集节点：
+
+```java
+@Slf4j
+public class IllustrationCollectorNode {
+
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            List<ImageResource> illustrations = new ArrayList<>();
+            try {
+                ImageCollectionPlan plan = context.getImageCollectionPlan();
+                if (plan != null && plan.getIllustrationTasks() != null) {
+                    UndrawIllustrationTool illustrationTool = SpringContextUtil.getBean(UndrawIllustrationTool.class);
+                    log.info("开始并发收集插画图片，任务数: {}", plan.getIllustrationTasks().size());
+                    for (ImageCollectionPlan.IllustrationTask task : plan.getIllustrationTasks()) {
+                        List<ImageResource> images = illustrationTool.searchIllustrations(task.query());
+                        if (images != null) {
+                            illustrations.addAll(images);
+                        }
+                    }
+                    log.info("插画图片收集完成，共收集到 {} 张图片", illustrations.size());
+                }
+            } catch (Exception e) {
+                log.error("插画图片收集失败: {}", e.getMessage(), e);
+            }
+            context.setIllustrations(illustrations);
+            context.setCurrentStep("插画图片收集");
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+4）架构图绘制节点：
+
+```java
+@Slf4j
+public class DiagramCollectorNode {
+
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            List<ImageResource> diagrams = new ArrayList<>();
+            try {
+                ImageCollectionPlan plan = context.getImageCollectionPlan();
+                if (plan != null && plan.getDiagramTasks() != null) {
+                    MermaidDiagramTool diagramTool = SpringContextUtil.getBean(MermaidDiagramTool.class);
+                    log.info("开始并发生成架构图，任务数: {}", plan.getDiagramTasks().size());
+                    for (ImageCollectionPlan.DiagramTask task : plan.getDiagramTasks()) {
+                        List<ImageResource> images = diagramTool.generateMermaidDiagram(
+                                task.mermaidCode(), task.description());
+                        if (images != null) {
+                            diagrams.addAll(images);
+                        }
+                    }
+                    log.info("架构图生成完成，共生成 {} 张图片", diagrams.size());
+                }
+            } catch (Exception e) {
+                log.error("架构图生成失败: {}", e.getMessage(), e);
+            }
+            context.setDiagrams(diagrams);
+            context.setCurrentStep("架构图生成");
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+5）Logo 生成节点：
+
+```java
+@Slf4j
+public class LogoCollectorNode {
+
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            List<ImageResource> logos = new ArrayList<>();
+            try {
+                ImageCollectionPlan plan = context.getImageCollectionPlan();
+                if (plan != null && plan.getLogoTasks() != null) {
+                    LogoGeneratorTool logoTool = SpringContextUtil.getBean(LogoGeneratorTool.class);
+                    log.info("开始并发生成Logo，任务数: {}", plan.getLogoTasks().size());
+                    for (ImageCollectionPlan.LogoTask task : plan.getLogoTasks()) {
+                        List<ImageResource> images = logoTool.generateLogos(task.description());
+                        if (images != null) {
+                            logos.addAll(images);
+                        }
+                    }
+                    log.info("Logo生成完成，共生成 {} 张图片", logos.size());
+                }
+            } catch (Exception e) {
+                log.error("Logo生成失败: {}", e.getMessage(), e);
+            }
+            context.setLogos(logos);
+            context.setCurrentStep("Logo生成");
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+6）图片聚合节点：汇聚所有并发分支收集到的图片
+
+```java
+@Slf4j
+public class ImageAggregatorNode {
+
+    public static AsyncNodeAction<MessagesState<String>> create() {
+        return node_async(state -> {
+            WorkflowContext context = WorkflowContext.getContext(state);
+            List<ImageResource> allImages = new ArrayList<>();
+            log.info("开始聚合并发收集的图片");
+            // 从各个中间字段聚合图片
+            if (context.getContentImages() != null) {
+                allImages.addAll(context.getContentImages());
+            }
+            if (context.getIllustrations() != null) {
+                allImages.addAll(context.getIllustrations());
+            }
+            if (context.getDiagrams() != null) {
+                allImages.addAll(context.getDiagrams());
+            }
+            if (context.getLogos() != null) {
+                allImages.addAll(context.getLogos());
+            }
+            log.info("图片聚合完成，总共 {} 张图片", allImages.size());
+            // 更新最终的图片列表
+            context.setImageList(allImages);
+            context.setCurrentStep("图片聚合");
+            return WorkflowContext.saveContext(context);
+        });
+    }
+}
+
+```
+
+编写一个新的工作流 `CodeGenConcurrentWorkflow`，使用 LangGraph4j 的并发能力实现图片收集的并发执行：
+
+```java
+@Slf4j
+public class CodeGenConcurrentWorkflow {
+
+    /**
+     * 创建并发工作流
+     */
+    public CompiledGraph<MessagesState<String>> createWorkflow() {
+        try {
+            return new MessagesStateGraph<String>()
+                    // 添加节点
+                    .addNode("image_plan", ImagePlanNode.create())
+                    .addNode("prompt_enhancer", PromptEnhancerNode.create())
+                    .addNode("router", RouterNode.create())
+                    .addNode("code_generator", CodeGeneratorNode.create())
+                    .addNode("code_quality_check", CodeQualityCheckNode.create())
+                    .addNode("project_builder", ProjectBuilderNode.create())
+
+                    // 添加并发图片收集节点
+                    .addNode("content_image_collector", ContentImageCollectorNode.create())
+                    .addNode("illustration_collector", IllustrationCollectorNode.create())
+                    .addNode("diagram_collector", DiagramCollectorNode.create())
+                    .addNode("logo_collector", LogoCollectorNode.create())
+                    .addNode("image_aggregator", ImageAggregatorNode.create())
+
+                    // 添加边
+                    .addEdge(START, "image_plan")
+
+                    // 并发分支：从计划节点分发到各个收集节点
+                    .addEdge("image_plan", "content_image_collector")
+                    .addEdge("image_plan", "illustration_collector")
+                    .addEdge("image_plan", "diagram_collector")
+                    .addEdge("image_plan", "logo_collector")
+
+                    // 汇聚：所有收集节点都汇聚到聚合器
+                    .addEdge("content_image_collector", "image_aggregator")
+                    .addEdge("illustration_collector", "image_aggregator")
+                    .addEdge("diagram_collector", "image_aggregator")
+                    .addEdge("logo_collector", "image_aggregator")
+
+                    // 继续串行流程
+                    .addEdge("image_aggregator", "prompt_enhancer")
+                    .addEdge("prompt_enhancer", "router")
+                    .addEdge("router", "code_generator")
+                    .addEdge("code_generator", "code_quality_check")
+
+                    // 质检条件边
+                    .addConditionalEdges("code_quality_check",
+                            edge_async(this::routeAfterQualityCheck),
+                            Map.of(
+                                    "build", "project_builder",
+                                    "skip_build", END,
+                                    "fail", "code_generator"
+                            ))
+                    .addEdge("project_builder", END)
+                    .compile();
+        } catch (GraphStateException e) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "并发工作流创建失败");
+        }
+    }
+
+    /**
+     * 执行并发工作流
+     */
+    public WorkflowContext executeWorkflow(String originalPrompt) {
+        CompiledGraph<MessagesState<String>> workflow = createWorkflow();
+        WorkflowContext initialContext = WorkflowContext.builder()
+                .originalPrompt(originalPrompt)
+                .currentStep("初始化")
+                .build();
+        GraphRepresentation graph = workflow.getGraph(GraphRepresentation.Type.MERMAID);
+        log.info("并发工作流图:\n{}", graph.content());
+        log.info("开始执行并发代码生成工作流");
+        WorkflowContext finalContext = null;
+        int stepCounter = 1;
+        for (NodeOutput<MessagesState<String>> step : workflow.stream(
+                Map.of(WorkflowContext.WORKFLOW_CONTEXT_KEY, initialContext)
+        )) {
+            log.info("--- 第 {} 步完成 ---", stepCounter);
+            WorkflowContext currentContext = WorkflowContext.getContext(step.state());
+            if (currentContext != null) {
+                finalContext = currentContext;
+                log.info("当前步骤上下文: {}", currentContext);
+            }
+            stepCounter++;
+        }
+        log.info("并发代码生成工作流执行完成！");
+        return finalContext;
+    }
+
+    /**
+     * 路由函数：根据质检结果决定下一步
+     */
+    private String routeAfterQualityCheck(MessagesState<String> state) {
+        WorkflowContext context = WorkflowContext.getContext(state);
+        QualityResult qualityResult = context.getQualityResult();
+
+        if (qualityResult == null || !qualityResult.getIsValid()) {
+            log.error("代码质检失败，需要重新生成代码");
+            return "fail";
+        }
+        log.info("代码质检通过，继续后续流程");
+        CodeGenTypeEnum generationType = context.getGenerationType();
+        if (generationType == CodeGenTypeEnum.VUE_PROJECT) {
+            return "build";
+        } else {
+            return "skip_build";
+        }
+    }
+}
+
+```
+
+上述代码中⁢⁢⁢⁢⁢⁢⁢，我们只需要为同一‍‍‍‍‍‍‍个工作节点创造连接‌‌‌‌‌‌‌到多个不同图片收集‎‎‎‎‎‎‎工作节点的边，框架‏‏‏‏‏‏‏就会自动作为并发分支处理。
+
+由于之前 LangGraph4j 的旧版本是不支持并发的，即使按照要求写代码，并发分支仍然是串行执行；从 `1.6.0-rc2` 版本后，就支持配置线程池了。
+
+需要配置线程池和运行时配置：
+
+```java
+// 配置并发执行
+ExecutorService pool = ExecutorBuilder.create()
+        .setCorePoolSize(10)
+        .setMaxPoolSize(20)
+        .setWorkQueue(new LinkedBlockingQueue<>(100))
+        .setThreadFactory(ThreadFactoryBuilder.create().setNamePrefix("Parallel-Image-Collect").build())
+        .build();
+RunnableConfig runnableConfig = RunnableConfig.builder()
+        .addParallelNodeExecutor("image_plan", pool)
+        .build();
+for (NodeOutput<MessagesState<String>> step : workflow.stream(
+        Map.of(WorkflowContext.WORKFLOW_CONTEXT_KEY, initialContext),
+        runnableConfig)) {}
+
+```
+
+# 十、系统优化
+
