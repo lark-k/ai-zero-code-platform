@@ -1,5 +1,6 @@
 package com.lk.aizerocodeplatform.langgraph4j;
 
+import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.langgraph4j.node.*;
@@ -9,6 +10,7 @@ import org.bsc.langgraph4j.CompiledGraph;
 import org.bsc.langgraph4j.GraphRepresentation;
 import org.bsc.langgraph4j.GraphStateException;
 import org.bsc.langgraph4j.NodeOutput;
+import org.bsc.langgraph4j.action.AsyncEdgeAction;
 import org.bsc.langgraph4j.prebuilt.MessagesState;
 import org.bsc.langgraph4j.prebuilt.MessagesStateGraph;
 
@@ -44,7 +46,16 @@ public class CodeGenWorkflow {
                     .addEdge("image_collector", "prompt_enhancer")
                     .addEdge("prompt_enhancer", "router")
                     .addEdge("router", "code_generator")
-                    .addEdge("code_generator", "project_builder")
+                    // 条件边
+                    .addConditionalEdges("code_generator",
+                            AsyncEdgeAction.edge_async(this::routeBuildOrSkip),
+                            Map.of(
+                                    // 跳过构建，则下一步直接结束
+                                    "skip_build", END,
+                                    // 需要构建，则下一步执行项目构建节点
+                                    "build", "project_builder"
+                            )
+                    )
                     .addEdge("project_builder", END)
 
                     // 编译工作流
@@ -85,6 +96,22 @@ public class CodeGenWorkflow {
         }
         log.info("代码生成工作流执行完成！");
         return finalContext;
+    }
+
+    /**
+     * 判断是否构建项目
+     *
+     * @param state 工作流状态
+     */
+    public String routeBuildOrSkip(MessagesState<String> state) {
+        WorkflowContext context = WorkflowContext.getContext(state);
+        CodeGenTypeEnum generationType = context.getGenerationType();
+        if (generationType == CodeGenTypeEnum.HTML || generationType == CodeGenTypeEnum.MULTI_FILE) {
+            // 原生html和多文件模式跳过构建
+            return "skip_build";
+        }
+        // vue项目执行构建
+        return "build";
     }
 }
 
