@@ -42,7 +42,7 @@ public class CodeGeneratorNode {
             // 调用流式代码生成
             Flux<String> codeStream = codeGeneratorFacade.generateCodeAndSaveStream(userMessage, generationType, appId);
             // 同步等待流式输出完成
-            codeStream.blockLast(Duration.ofMinutes(10)); // 最多等待 10 分钟
+            codeStream.blockLast(Duration.ofMinutes(30)); // 最多等待 30 分钟
             // 根据类型设置生成目录
             String generatedCodeDir;
             if (generationType == CodeGenTypeEnum.VUE_PROJECT) {

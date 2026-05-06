@@ -1,6 +1,7 @@
 package com.lk.aizerocodeplatform.langgraph4j.state;
 
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
+import com.lk.aizerocodeplatform.langgraph4j.model.ImageCollectionPlan;
 import com.lk.aizerocodeplatform.langgraph4j.model.ImageResource;
 import com.lk.aizerocodeplatform.langgraph4j.model.QualityResult;
 import lombok.AllArgsConstructor;
@@ -82,6 +83,21 @@ public class WorkflowContext implements Serializable {
      * 代码质量检查
      */
     private QualityResult qualityResult;
+
+    /**
+     * 图片收集计划
+     */
+    private ImageCollectionPlan imageCollectionPlan;
+
+
+    /**
+     * 并发图片收集的中间结果字段
+     */
+    private List<ImageResource> contentImages;
+    private List<ImageResource> illustrations;
+    private List<ImageResource> diagrams;
+    private List<ImageResource> logos;
+
 
 
     // ========== 上下文操作方法 ==========
