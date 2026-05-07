@@ -3,6 +3,7 @@ package com.lk.aizerocodeplatform.ai;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.lk.aizerocodeplatform.ai.guardrail.PromptSafetyInputGuardrail;
+import com.lk.aizerocodeplatform.ai.guardrail.RetryOutputGuardrail;
 import com.lk.aizerocodeplatform.ai.tools.*;
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
@@ -129,6 +130,8 @@ public class AiCodeGenServiceFactory {
                         .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()))
                         // 增加提示词安全护轨：调用大模型前检查提示词是否合法
                         .inputGuardrails(new PromptSafetyInputGuardrail())
+//                        // 大模型输出检查护轨：检查大模型输出的内容是否合法   注意：使用输出护轨会导致流式输出失效
+//                        .outputGuardrails(new RetryOutputGuardrail())
                         .build();
             }
             // 普通代码文件使用普通模型
@@ -143,6 +146,8 @@ public class AiCodeGenServiceFactory {
                         .chatMemory(chatMemory)
                         // 增加提示词安全护轨：调用大模型前检查提示词是否合法
                         .inputGuardrails(new PromptSafetyInputGuardrail())
+//                        // 大模型输出检查护轨：检查大模型输出的内容是否合法       注意：使用输出护轨会导致流式输出失效
+//                        .outputGuardrails(new RetryOutputGuardrail())
                         .build();
             }
             default ->
