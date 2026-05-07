@@ -11,13 +11,13 @@ import org.springframework.context.annotation.Scope;
 /**
  * @Author 梁科
  * @Version 1.0
- * @ Date 2026/4/29 13:28
- * 配置推理流式聊天模型，可以支持更复杂的任务推理（多例）
+ * @ Date 2026/5/7 13:35
+ * 配置普通的流式对话模型（多例）
  */
+@ConfigurationProperties(prefix = "langchain4j.open-ai.streaming-chat-model")
 @Configuration
-@ConfigurationProperties(prefix = "langchain4j.open-ai.reasoning-stream-chat-model")
 @Data
-public class ReasoningStreamChatModelConfig {
+public class StreamChatModelConfig {
     private String baseUrl;
 
     private String apiKey;
@@ -30,12 +30,10 @@ public class ReasoningStreamChatModelConfig {
 
     private boolean logResponses;
 
-
     @Scope("prototype")
     @Bean
-    public StreamingChatModel reasoningStreamChatModel() {
-        return OpenAiStreamingChatModel
-                .builder()
+    public StreamingChatModel streamingChatModel() {
+        return OpenAiStreamingChatModel.builder()
                 .apiKey(apiKey)
                 .baseUrl(baseUrl)
                 .modelName(modelName)

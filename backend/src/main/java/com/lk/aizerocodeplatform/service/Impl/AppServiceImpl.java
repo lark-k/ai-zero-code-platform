@@ -5,7 +5,7 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.IORuntimeException;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
-import com.lk.aizerocodeplatform.ai.AiCodeGenTypeRoutingService;
+import com.lk.aizerocodeplatform.ai.AiCodeGenTypeRoutingServiceFactory;
 import com.lk.aizerocodeplatform.constant.AppConstant;
 import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
 import com.lk.aizerocodeplatform.core.AiCodeGenFacade;
@@ -70,7 +70,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     @Resource
     private OssUploadService ossUploadService;
     @Resource
-    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
+    private AiCodeGenTypeRoutingServiceFactory aiCodeGenTypeRoutingServiceFactory;
 
     @Override
     public Long addApp(AddAppDTO addAppDTO, HttpServletRequest request) {
@@ -82,7 +82,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         UserLoginVO currentUserLoginVo = userService.getCurrentUserLoginVo(request);
         ThrowUtils.throwIf(currentUserLoginVo == null, ErrorCode.NOT_LOGIN_ERROR);
         // 调用ai服务，通过ai智能获取代码生成类型
-        CodeGenTypeEnum codeGenTypeEnum = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
+        CodeGenTypeEnum codeGenTypeEnum = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService().routeCodeGenType(initPrompt);
         App app = new App();
         app.setInitPrompt(initPrompt);
         // 代码生成类型设置为ai返回的类型

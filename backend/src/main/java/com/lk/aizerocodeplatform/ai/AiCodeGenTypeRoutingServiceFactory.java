@@ -1,10 +1,11 @@
 package com.lk.aizerocodeplatform.ai;
 
+import com.lk.aizerocodeplatform.tools.SpringContextUtil;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
-import jakarta.annotation.Resource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Scope;
 
 /**
  * @Author 梁科
@@ -14,13 +15,21 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 public class AiCodeGenTypeRoutingServiceFactory {
-    @Resource
-    private ChatModel chatModel;
+//    @Resource
+//    private ChatModel chatModel;
 
+    @Scope("prototype")
     @Bean
-    public AiCodeGenTypeRoutingService genTypeRoutingService() {
+    public AiCodeGenTypeRoutingService createAiCodeGenTypeRoutingService() {
+        // 动态获取多例的路由 ChatModel，支持并发
+        ChatModel chatModel = SpringContextUtil.getBean("chatModel", ChatModel.class);
         return AiServices.builder(AiCodeGenTypeRoutingService.class)
                 .chatModel(chatModel)
                 .build();
+    }
+
+    @Bean
+    public AiCodeGenTypeRoutingService genTypeRoutingService() {
+        return createAiCodeGenTypeRoutingService();
     }
 }

@@ -1,7 +1,7 @@
 package com.lk.aizerocodeplatform.config;
 
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -11,13 +11,13 @@ import org.springframework.context.annotation.Scope;
 /**
  * @Author 梁科
  * @Version 1.0
- * @ Date 2026/4/29 13:28
- * 配置推理流式聊天模型，可以支持更复杂的任务推理（多例）
+ * @ Date 2026/5/7 13:49
+ * 配置普通的对话模型（多例）
  */
+@ConfigurationProperties(prefix = "langchain4j.open-ai.chat-model")
 @Configuration
-@ConfigurationProperties(prefix = "langchain4j.open-ai.reasoning-stream-chat-model")
 @Data
-public class ReasoningStreamChatModelConfig {
+public class ChatModelConfig {
     private String baseUrl;
 
     private String apiKey;
@@ -30,14 +30,12 @@ public class ReasoningStreamChatModelConfig {
 
     private boolean logResponses;
 
-
     @Scope("prototype")
     @Bean
-    public StreamingChatModel reasoningStreamChatModel() {
-        return OpenAiStreamingChatModel
-                .builder()
-                .apiKey(apiKey)
+    public ChatModel chatModel() {
+        return OpenAiChatModel.builder()
                 .baseUrl(baseUrl)
+                .apiKey(apiKey)
                 .modelName(modelName)
                 .maxTokens(maxTokens)
                 .logRequests(logRequests)

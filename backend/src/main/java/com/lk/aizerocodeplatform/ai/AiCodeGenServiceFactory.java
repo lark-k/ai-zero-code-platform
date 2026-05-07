@@ -8,6 +8,7 @@ import com.lk.aizerocodeplatform.exception.BusinessException;
 import com.lk.aizerocodeplatform.exception.ErrorCode;
 import com.lk.aizerocodeplatform.model.entity.ChatHistory;
 import com.lk.aizerocodeplatform.service.ChatHistoryService;
+import com.lk.aizerocodeplatform.tools.SpringContextUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
 import dev.langchain4j.data.message.AiMessage;
@@ -34,10 +35,10 @@ import java.util.List;
 @Slf4j
 @Configuration
 public class AiCodeGenServiceFactory {
-    @Resource
-    private ChatModel chatModel;
-    @Resource
-    private StreamingChatModel openAiStreamingChatModel;
+//    @Resource
+//    private ChatModel chatModel;
+//    @Resource
+//    private StreamingChatModel openAiStreamingChatModel;
     @Resource
     private RedisChatMemoryStore redisChatMemoryStore;
     @Resource
@@ -46,8 +47,8 @@ public class AiCodeGenServiceFactory {
      * 注入配置的推理流式模型
      * 注意：必须给上面的StreamingChatModel对象改个名字，不然系统不知道装配哪个bean
      */
-    @Resource
-    private StreamingChatModel reasoningStreamChatModel;
+//    @Resource
+//    private StreamingChatModel reasoningStreamChatModel;
     @Resource
     private ToolManager toolManager;
 
@@ -115,20 +116,30 @@ public class AiCodeGenServiceFactory {
         // 根据不同的代码生成类型，创建不同的AI服务
         return switch (codeGenTypeEnum) {
             // vue工程项目使用推理流式模型
-            case VUE_PROJECT -> AiServices.builder(AiCodeGenService.class)
-                    .streamingChatModel(reasoningStreamChatModel)
-                    .chatMemoryProvider(memoryId -> chatMemory)
-                    .tools(
-                        toolManager.getAllTools()
-                    )
-                    .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()))
-                    .build();
+            case VUE_PROJECT -> {
+                // 通过工具类拿到 多例 的推理流式聊天模型
+                StreamingChatModel reasoningStreamChatModel = SpringContextUtil.getBean("reasoningStreamChatModel", StreamingChatModel.class);
+                yield AiServices.builder(AiCodeGenService.class)
+                        .streamingChatModel(reasoningStreamChatModel)
+                        .chatMemoryProvider(memoryId -> chatMemory)
+                        .tools(
+                                toolManager.getAllTools()
+                        )
+                        .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()))
+                        .build();
+            }
             // 普通代码文件使用普通模型
-            case MULTI_FILE, HTML -> AiServices.builder(AiCodeGenService.class)
-                    .chatModel(chatModel)
-                    .streamingChatModel(openAiStreamingChatModel)
-                    .chatMemory(chatMemory)
-                    .build();
+            case MULTI_FILE, HTML -> {
+                // 通过工具类拿到 多例 的普通流式聊天模型
+                StreamingChatModel openAiStreamingChatModel = SpringContextUtil.getBean("streamingChatModel", StreamingChatModel.class);
+                // 通过工具类拿到 多例 的普通聊天模型
+                ChatModel chatModel = SpringContextUtil.getBean("chatModel", ChatModel.class);
+                yield AiServices.builder(AiCodeGenService.class)
+                        .chatModel(chatModel)
+                        .streamingChatModel(openAiStreamingChatModel)
+                        .chatMemory(chatMemory)
+                        .build();
+            }
             default ->
                     throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的代码生成类型：" + codeGenTypeEnum.getValue());
         };
