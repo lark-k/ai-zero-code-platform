@@ -2,6 +2,7 @@ package com.lk.aizerocodeplatform.ai;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.lk.aizerocodeplatform.ai.guardrail.PromptSafetyInputGuardrail;
 import com.lk.aizerocodeplatform.ai.tools.*;
 import com.lk.aizerocodeplatform.enums.CodeGenTypeEnum;
 import com.lk.aizerocodeplatform.exception.BusinessException;
@@ -126,6 +127,8 @@ public class AiCodeGenServiceFactory {
                                 toolManager.getAllTools()
                         )
                         .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()))
+                        // 增加提示词安全护轨：调用大模型前检查提示词是否合法
+                        .inputGuardrails(new PromptSafetyInputGuardrail())
                         .build();
             }
             // 普通代码文件使用普通模型
@@ -138,6 +141,8 @@ public class AiCodeGenServiceFactory {
                         .chatModel(chatModel)
                         .streamingChatModel(openAiStreamingChatModel)
                         .chatMemory(chatMemory)
+                        // 增加提示词安全护轨：调用大模型前检查提示词是否合法
+                        .inputGuardrails(new PromptSafetyInputGuardrail())
                         .build();
             }
             default ->
