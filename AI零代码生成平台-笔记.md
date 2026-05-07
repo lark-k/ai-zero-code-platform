@@ -9537,3 +9537,1014 @@ for (NodeOutput<MessagesState<String>> step : workflow.stream(
 
 # 十、系统优化
 
+## 性能优化
+
+### 1、AI并发调用问题
+
+在实际使用过程中，⁢⁢⁢我们发现了一个严重的性能瓶颈：当多‍‍‍个用户同时使用平台时，只有第一个用‌‌‌户的 AI 请求能够正常处理，后续‎‎‎的请求都会被阻塞，需要等待前面的请‏‏‏求完全处理完毕后才能开始执行。
+
+用户量较少时可能不⁢⁢⁢太明显，但随着平台用户的增长，这个问‍‍‍题会变得越发严重。想象一下，如果有 ‌‌‌10 个用户同时想要生成网站，第 1‎‎‎0 个用户可能需要等待几分钟以上才能‏‏‏看到 AI 开始响应，肯定不行。
+
+那么，这个问题的根源在哪里呢？
+
+经过分析，发现问题出在 AI 大模型的 `ChatModel` 采用了单例模式。虽然 `StreamingChatModel` 返回的是 Flux 响应式流，表面上看起来是异步的，但其底层的 `SpringRestClient.execute()` 方法内部实际上是同步解析数据流的，导致了串行执行问题。
+
+**Spring 多例模式**：利用 Spring 的 Bean 作用域机制，从 Spring 容器中获取新的 ChatModel 实例
+
+1）准备配置文件
+
+首先，在配置⁢⁢⁢文件中为不同类型的 A‍‍‍I 模型添加专门的配置‌‌‌参数。这样做的好处是可‎‎‎以根据不同的使用场景选‏‏‏择最适合的模型配置：
+
+```yaml
+# AI 模型配置
+langchain4j:
+  open-ai:
+    # 推理 AI 模型配置（用于复杂的推理任务）
+    reasoning-streaming-chat-model:
+      base-url: https://api.deepseek.com
+      api-key: <Your API Key>
+      model-name: deepseek-reasoner
+      max-tokens: 32768
+      temperature: 0.1
+      log-requests: true
+      log-responses: true
+    # 智能路由 AI 模型配置（用于简单的分类任务）
+    routing-chat-model:
+      base-url: https://api.deepseek.com
+      api-key: <Your API Key>
+      model-name: deepseek-chat
+      log-requests: true
+      log-responses: true
+
+```
+
+💡 注意这里我们⁢⁢⁢为不同的模型设置了不同的参数。推理模‍‍‍型使用更高的 max-tokens ‌‌‌和更低的 temperature 来‎‎‎保证输出的稳定性；路由模型则相对简化‏‏‏配置，因为它主要用于简单的分类任务。
+
+2）创建多例配置类
+
+需要为每种模型创建对应的配置类。这里的关键是使用 `@Scope("prototype")` 注解，它告诉 Spring 容器每次获取 Bean 时都创建一个全新的实例，而不是复用单例。
+
+在 `config` 包下编写通用流式聊天模型配置：
+
+```java
+@Configuration
+@ConfigurationProperties(prefix = "langchain4j.open-ai.streaming-chat-model")
+@Data
+public class StreamingChatModelConfig {
+
+    private String baseUrl;
+
+    private String apiKey;
+
+    private String modelName;
+
+    private Integer maxTokens;
+
+    private Double temperature;
+
+    private boolean logRequests;
+
+    private boolean logResponses;
+
+    @Bean
+    @Scope("prototype")
+    public StreamingChatModel streamingChatModelPrototype() {
+        return OpenAiStreamingChatModel.builder()
+                .apiKey(apiKey)
+                .baseUrl(baseUrl)
+                .modelName(modelName)
+                .maxTokens(maxTokens)
+                .temperature(temperature)
+                .logRequests(logRequests)
+                .logResponses(logResponses)
+                .build();
+    }
+}
+
+```
+
+推理专用流式模型配置：
+
+```java
+@Configuration
+@ConfigurationProperties(prefix = "langchain4j.open-ai.reasoning-streaming-chat-model")
+@Data
+public class ReasoningStreamingChatModelConfig {
+
+    private String baseUrl;
+
+    private String apiKey;
+
+    private String modelName;
+
+    private Integer maxTokens;
+
+    private Double temperature;
+
+    private Boolean logRequests = false;
+
+    private Boolean logResponses = false;
+
+    @Bean
+    @Scope("prototype")
+    public StreamingChatModel reasoningStreamingChatModelPrototype() {
+        return OpenAiStreamingChatModel.builder()
+                .apiKey(apiKey)
+                .baseUrl(baseUrl)
+                .modelName(modelName)
+                .maxTokens(maxTokens)
+                .temperature(temperature)
+                .logRequests(logRequests)
+                .logResponses(logResponses)
+                .build();
+    }
+}
+
+```
+
+智能路由专用模型配置：
+
+```java
+@Configuration
+@ConfigurationProperties(prefix = "langchain4j.open-ai.routing-chat-model")
+@Data
+public class RoutingAiModelConfig {
+
+    private String baseUrl;
+
+    private String apiKey;
+
+    private String modelName;
+
+    private Integer maxTokens;
+
+    private Double temperature;
+
+    private Boolean logRequests = false;
+
+    private Boolean logResponses = false;
+
+    /**
+     * 创建用于路由判断的ChatModel
+     */
+    @Bean
+    @Scope("prototype")
+    public ChatModel routingChatModelPrototype() {
+        return OpenAiChatModel.builder()
+                .apiKey(apiKey)
+                .modelName(modelName)
+                .baseUrl(baseUrl)
+                .maxTokens(maxTokens)
+                .temperature(temperature)
+                .logRequests(logRequests)
+                .logResponses(logResponses)
+                .build();
+    }
+}
+
+```
+
+3）修改工厂类
+
+更新 `AiCodeGeneratorServiceFactory` 类，让它根据代码生成类型选择不同的模型配置：
+
+```java
+// 根据代码生成类型选择不同的模型配置
+return switch (codeGenType) {
+    case VUE_PROJECT -> {
+        // 使用多例模式的 StreamingChatModel 解决并发问题
+        StreamingChatModel reasoningStreamingChatModel = SpringContextUtil.getBean("reasoningStreamingChatModelPrototype", StreamingChatModel.class);
+        yield AiServices.builder(AiCodeGeneratorService.class)
+                .streamingChatModel(reasoningStreamingChatModel)
+                .chatMemoryProvider(memoryId -> chatMemory)
+                .tools(toolManager.getAllTools())
+                .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(
+                        toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()
+                ))
+                .build();
+    }
+    case HTML, MULTI_FILE -> {
+        // 使用多例模式的 StreamingChatModel 解决并发问题
+        StreamingChatModel openAiStreamingChatModel = SpringContextUtil.getBean("streamingChatModelPrototype", StreamingChatModel.class);
+        yield AiServices.builder(AiCodeGeneratorService.class)
+                .chatModel(chatModel)
+                .streamingChatModel(openAiStreamingChatModel)
+                .chatMemory(chatMemory)
+                .build();
+    }
+    default -> throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+            "不支持的代码生成类型: " + codeGenType.getValue());
+};
+```
+
+同时，我们需要为所有原本注入 `ChatModel` 的地方指定具体的 Bean 名称，避免冲突：
+
+```java
+@Resource(name = "openAiChatModel")
+private ChatModel chatModel;
+```
+
+这样修改后，每个 AI 服务实例都会获得独立的 `StreamingChatModel`，从而彻底解决并发阻塞问题。
+
+4）更新智能路由服务
+
+同样的思路，更新智能路由 AI 服务工厂类：
+
+```java
+@Slf4j
+@Configuration
+public class AiCodeGenTypeRoutingServiceFactory {
+
+    /**
+     * 创建AI代码生成类型路由服务实例
+     */
+    public AiCodeGenTypeRoutingService createAiCodeGenTypeRoutingService() {
+        // 动态获取多例的路由 ChatModel，支持并发
+        ChatModel chatModel = SpringContextUtil.getBean("routingChatModelPrototype", ChatModel.class);
+        return AiServices.builder(AiCodeGenTypeRoutingService.class)
+                .chatModel(chatModel)
+                .build();
+    }
+
+    /**
+     * 默认提供一个 Bean
+     */
+    @Bean
+    public AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService() {
+        return createAiCodeGenTypeRoutingService();
+    }
+}
+```
+
+相应地，调⁢⁢⁢用智能路由服务的‍‍地‍方也需要调整获‌取‌‌逻辑。比如 A‎‎ppS‎ervic‏‏eImp‏l 中的调用：
+
+```java
+@Resource
+private AiCodeGenTypeRoutingServiceFactory aiCodeGenTypeRoutingServiceFactory;
+
+@Override
+public Long createApp(AppAddRequest appAddRequest, User loginUser) {
+    // 参数校验
+    String initPrompt = appAddRequest.getInitPrompt();
+    ThrowUtils.throwIf(StrUtil.isBlank(initPrompt), ErrorCode.PARAMS_ERROR, "初始化 prompt 不能为空");
+    // 使用 AI 智能选择代码生成类型（多例模式）
+    AiCodeGenTypeRoutingService routingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
+    CodeGenTypeEnum selectedCodeGenType = routingService.routeCodeGenType(initPrompt);
+    // ... 其他业务逻辑
+}
+```
+
+还有 RouterNode 中的调用：
+
+```java
+// 获取AI路由服务工厂并创建新的路由服务实例
+AiCodeGenTypeRoutingServiceFactory factory = SpringContextUtil.getBean(AiCodeGenTypeRoutingServiceFactory.class);
+AiCodeGenTypeRoutingService routingService = factory.createAiCodeGenTypeRoutingService();
+```
+
+测试验证
+
+编写一个专⁢⁢⁢门的并发测试类‍，‍使‍用 Jav‌a ‌21‌ 的虚‎拟线程‎特性实‎现‏并发：
+
+```java
+@Slf4j
+@SpringBootTest
+public class AiConcurrentTest {
+
+    @Resource
+    private AiCodeGenTypeRoutingServiceFactory routingServiceFactory;
+
+    @Test
+    public void testConcurrentRoutingCalls() throws InterruptedException {
+        String[] prompts = {
+                "做一个简单的HTML页面",
+                "做一个多页面网站项目",
+                "做一个Vue管理系统"
+        };
+        // 使用虚拟线程并发执行
+        Thread[] threads = new Thread[prompts.length];
+        for (int i = 0; i < prompts.length; i++) {
+            final String prompt = prompts[i];
+            final int index = i + 1;
+            threads[i] = Thread.ofVirtual().start(() -> {
+                AiCodeGenTypeRoutingService service = routingServiceFactory.createAiCodeGenTypeRoutingService();
+                var result = service.routeCodeGenType(prompt);
+                log.info("线程 {}: {} -> {}", index, prompt, result.getValue());
+            });
+        }
+        // 等待所有任务完成
+        for (Thread thread : threads) {
+            thread.join();
+        }
+    }
+}
+
+```
+
+### 2、精选应用存入Redis缓存
+
+**引入依赖**
+
+```xml
+<dependency>
+    <groupId>org.springframework.session</groupId>
+    <artifactId>spring-session-data-redis</artifactId>
+</dependency>
+```
+
+该依赖中已经整合了spring-boot-starter-data-redis
+
+**配置application.yaml文件**
+
+```yaml
+spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      ttl: 3600
+      password:
+```
+
+**编写redis配置类**
+
+```java
+package com.lk.aizerocodeplatform.config;
+
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+/**
+ * 统一 Redis 序列化配置，解决 key / value 存入 Redis 后乱码问题。
+ * @author LK
+ */
+@Configuration
+public class RedisConfig {
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> redisTemplate = new RedisTemplate<>();
+
+        StringRedisSerializer stringRedisSerializer = new StringRedisSerializer();
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        objectMapper.activateDefaultTyping(
+                LaissezFaireSubTypeValidator.instance,
+                ObjectMapper.DefaultTyping.NON_FINAL,
+                JsonTypeInfo.As.PROPERTY
+        );
+
+        GenericJackson2JsonRedisSerializer jsonRedisSerializer =
+                new GenericJackson2JsonRedisSerializer(objectMapper);
+
+        redisTemplate.setConnectionFactory(redisConnectionFactory);
+        redisTemplate.setKeySerializer(stringRedisSerializer);
+        redisTemplate.setHashKeySerializer(stringRedisSerializer);
+        redisTemplate.setValueSerializer(jsonRedisSerializer);
+        redisTemplate.setHashValueSerializer(jsonRedisSerializer);
+        redisTemplate.afterPropertiesSet();
+        return redisTemplate;
+    }
+}
+```
+
+**使用redis**
+
+```java
+ /**
+     * 构建精选应用分页查询的redis中的key
+     *
+     * @param queryAppDTO 分页查询条件
+     * @return redis中的key
+     */
+    private String buildGoodAppPageCacheKey(QueryAppDTO queryAppDTO) {
+        // 将查询条件转换为json字符串
+        String rawKey = JSONUtil.toJsonStr(queryAppDTO);
+        // 对json字符串进行md5加密
+        return "app:good:page:" + DigestUtil.md5Hex(rawKey);
+    }
+
+    /**
+     * 精选应用改变后，删除精选应用缓存
+     */
+    private void clearGoodAppPageCache() {
+        Set<String> keys = redisTemplate.keys("app:good:page:*");
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+        }
+    }
+```
+
+```java
+@Override
+public Page<AppVO> getAppVoPageForGood(QueryAppDTO queryAppDTO) {
+    ThrowUtils.throwIf(queryAppDTO == null, ErrorCode.PARAMS_ERROR);
+    int pageNum = queryAppDTO.getPageNum();
+    int pageSize = queryAppDTO.getPageSize();
+    ThrowUtils.throwIf(pageSize > 20, ErrorCode.PARAMS_ERROR, "每页最多查询 20 个应用");
+    // 设置查询条件：精选应用
+    queryAppDTO.setPriority(AppConstant.GOOD_APP_PRIORITY);
+
+    // 补齐查询条件后，根据查询条件生成redis的key
+    String cacheKey = buildGoodAppPageCacheKey(queryAppDTO);
+
+    // 1. 先查缓存
+    Object cacheObj = redisTemplate.opsForValue().get(cacheKey);
+    if (cacheObj != null) {
+        return (Page<AppVO>) cacheObj;
+    }
+
+    // 2. 缓存中没有则再查数据库
+    // 根据查询请求参数获取封装的查询条件
+    QueryWrapper queryWrapper = getQueryWrapperForGood(queryAppDTO);
+    Page<App> pageOfApp = this.page(Page.of(pageNum, pageSize), queryWrapper);
+    // 获取分页中的App全部信息
+    List<App> pageOfAppRecords = pageOfApp.getRecords();
+    // 将List<App>  ->   List<AppVO>
+    List<AppVO> pageOfAppVoRecords = getAppVoListByAppList(pageOfAppRecords);
+    Page<AppVO> appVoPage = new Page<>(pageNum, pageSize, pageOfApp.getTotalRow());
+    appVoPage.setRecords(pageOfAppVoRecords);
+    appVoPage.setTotalPage(pageOfApp.getTotalPage());
+
+    // 3. 将查询数据库得到的内容存入缓存 5 分钟 + 随机几十秒，避免同一时间大量过期
+    long timeout = 300 + RandomUtil.randomInt(0, 60);
+    redisTemplate.opsForValue().set(cacheKey, appVoPage, timeout, TimeUnit.SECONDS);
+
+    return appVoPage;
+}
+```
+
+对于涉及到精选应用改变的方法中，最终再调用clearGoodAppPageCache()方法，主动删除精选应用的缓存，不然会造成缓存数据与数据库数据的短期不一致问题！！！
+
+## 实时性优化
+
+之前有提到，如果是 V⁢⁢⁢ue 工程模式生成，用户在 AI  生成完代码‍‍‍后无法实时浏览到网站效果，或者看到的还是旧版本‌的‌‌页面。这是因为我们之前采用的是异步打包策‎‎‎略，当用户看到 AI  回复完成时，Vue 项‏‏‏目可能还在后台构建中，存在时间差。
+
+实现实时浏览的方案较多，这里直接通过一张表格列举：
+
+| 方案                | 核心思路                                               | 优点                                     | 缺点                                         |
+| ------------------- | ------------------------------------------------------ | ---------------------------------------- | -------------------------------------------- |
+| 同步打包            | 改为同步打包                                           | 确保预览完全就绪，用户体验好             | 用户需要等待打包完成，而且可能会影响系统性能 |
+| 轮询请求            | 前端轮询打包状态，完成⁢⁢⁢后刷新                           | 实现较为简单                             | 请求次数可能较多，实时性一般                 |
+| 异步打包 +‍‍‍ 进度反馈 | 异步打包完成后，通过 SSE（或 WebSocket）向‌‌‌前端推送进度 | 异步打包后第一时间推送给前端，用户体验好 | 实现复杂‎‎‎度较高                               |
+| 预览服务热更新      | 监听构建文件 + WebSocket 热更新‏‏‏                        | 接近实时的预览效果                       | 实现复杂度很高                               |
+
+将异步打包构建方式改为同步打包构建方式👇
+
+```java
+.onCompleteResponse((ChatResponse response) -> {
+    // 执行 Vue 项目构建（同步执行，确保预览时项目已就绪）
+    String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + "vue_project_" + appId;
+    //  vueProjectBuilder.buildProjectAsync(projectPath);
+    vueProjectBuilder.buildProject(projectPath);
+    sink.complete();
+})
+```
+
+## 安全性优化
+
+> 基于Redisson实现分布式限流
+
+考虑到限流是一个与业务松耦合的可选功能，为了便于管理和维护，下面我们将所有限流相关的代码都放到 `ratelimit` 包中。
+
+1）首先引入 Redisson 依赖：
+
+```xml
+<!-- Redisson -->
+<dependency>
+    <groupId>org.redisson</groupId>
+    <artifactId>redisson</artifactId>
+    <version>3.50.0</version>
+</dependency>
+
+```
+
+在 `ratelimiter.config` 包下编写 Redisson 客户端配置，读取 Redis 相关配置并初始化 Redisson 客户端 Bean：
+
+```java
+@Configuration
+public class RedissonConfig {
+
+    @Value("${spring.data.redis.host}")
+    private String redisHost;
+
+    @Value("${spring.data.redis.port}")
+    private Integer redisPort;
+
+    @Value("${spring.data.redis.password}")
+    private String redisPassword;
+
+    @Value("${spring.data.redis.database}")
+    private Integer redisDatabase;
+
+    @Bean
+    public RedissonClient redissonClient() {
+        Config config = new Config();
+        String address = "redis://" + redisHost + ":" + redisPort;
+        SingleServerConfig singleServerConfig = config.useSingleServer()
+                .setAddress(address)
+                .setDatabase(redisDatabase)
+                .setConnectionMinimumIdleSize(1)
+                .setConnectionPoolSize(10)
+                .setIdleConnectionTimeout(30000)
+                .setConnectTimeout(5000)
+                .setTimeout(3000)
+                .setRetryAttempts(3)
+                .setRetryInterval(1500);
+        // 如果有密码则设置密码
+        if (redisPassword != null && !redisPassword.isEmpty()) {
+            singleServerConfig.setPassword(redisPassword);
+        }
+        return Redisson.create(config);
+    }
+}
+
+```
+
+2）新增一⁢⁢⁢个 Error‍C‍o‍de 自定‌义业‌务异‌常类型‎，便于‎前端展‎示‏错误信息‏：
+
+```java
+TOO_MANY_REQUEST(42900, "请求过于频繁"),
+```
+
+3）创建限流⁢⁢⁢类型枚举，支持接口、用‍‍‍户、IP 多个维度的‌‌‌限流。
+
+在 `ratelimit.enums` 包下创建枚举类：
+
+```java
+public enum RateLimitType {
+    
+    /**
+     * 接口级别限流
+     */
+    API,
+    
+    /**
+     * 用户级别限流
+     */
+    USER,
+    
+    /**
+     * IP级别限流
+     */
+    IP
+}
+
+```
+
+4）为了更⁢⁢⁢方便使用限流，‍可‍以‍创建限流注‌解，‌提供‌灵活的配‎‎置选项。
+
+在 `ratelimit.annotation` 包下新建：
+
+```java
+@Target({ElementType.METHOD})
+@Retention(RetentionPolicy.RUNTIME)
+public @interface RateLimit {
+    
+    /**
+     * 限流key前缀
+     */
+    String key() default "";
+    
+    /**
+     * 每个时间窗口允许的请求数
+     */
+    int rate() default 10;
+    
+    /**
+     * 时间窗口（秒）
+     */
+    int rateInterval() default 1;
+    
+    /**
+     * 限流类型
+     */
+    RateLimitType limitType() default RateLimitType.USER;
+    
+    /**
+     * 限流提示信息
+     */
+    String message() default "请求过于频繁，请稍后再试";
+}
+
+```
+
+5）实现限流切面
+
+在 `ratelimit.aspect` 包下创建 `RateLimitAspect` 切面类，使用 AOP 面向切面编程来实现限流逻辑。
+
+```java
+package com.lk.aizerocodeplatform.ratelimit.aspect;
+
+import com.lk.aizerocodeplatform.exception.BusinessException;
+import com.lk.aizerocodeplatform.exception.ErrorCode;
+import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import com.lk.aizerocodeplatform.ratelimit.annotation.RateLimit;
+import com.lk.aizerocodeplatform.service.UserService;
+import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
+import org.aspectj.lang.JoinPoint;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
+import org.aspectj.lang.reflect.MethodSignature;
+import org.redisson.api.RRateLimiter;
+import org.redisson.api.RateIntervalUnit;
+import org.redisson.api.RateType;
+import org.redisson.api.RedissonClient;
+import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+
+import java.lang.reflect.Method;
+import java.time.Duration;
+
+/**
+ * @Author 梁科
+ * @Version 1.0
+ * @ Date 2026/5/7 21:24
+ * 切面类：用于流量限制
+ */
+@Component
+@Aspect
+@Slf4j
+public class RateLimitAspect {
+    @Resource
+    private RedissonClient redissonClient;
+    @Resource
+    private UserService userService;
+
+    @Before("@annotation(rateLimit)")
+    public void doBefore(JoinPoint point, RateLimit rateLimit) {
+        String key = generateRateLimitKey(point, rateLimit);
+        // 使用Redisson的分布式限流器
+        RRateLimiter rateLimiter = redissonClient.getRateLimiter(key);
+        // 1 小时后过期
+        rateLimiter.expire(Duration.ofHours(1));
+        // 设置限流器参数：每个时间窗口允许的请求数和时间窗口
+        rateLimiter.trySetRate(RateType.OVERALL, rateLimit.rate(), rateLimit.rateInterval(), RateIntervalUnit.SECONDS);
+        // 尝试获取令牌，如果获取失败则限流
+        if (!rateLimiter.tryAcquire(1)) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUEST, rateLimit.message());
+        }
+    }
+
+    private String generateRateLimitKey(JoinPoint point, RateLimit rateLimit) {
+        StringBuilder keyBuilder = new StringBuilder();
+        keyBuilder.append("rate_limit:");
+        // 添加自定义前缀
+        if (!rateLimit.key().isEmpty()) {
+            keyBuilder.append(rateLimit.key()).append(":");
+        }
+        // 根据限流类型生成不同的key
+        switch (rateLimit.limitType()) {
+            case API:
+                // 接口级别：方法名
+                MethodSignature signature = (MethodSignature) point.getSignature();
+                Method method = signature.getMethod();
+                keyBuilder.append("api:").append(method.getDeclaringClass().getSimpleName())
+                        .append(".").append(method.getName());
+                break;
+            case USER:
+                // 用户级别：用户ID
+                try {
+                    ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+                    if (attributes != null) {
+                        HttpServletRequest request = attributes.getRequest();
+                        UserLoginVO loginUser = userService.getCurrentUserLoginVo(request);
+                        keyBuilder.append("user:").append(loginUser.getId());
+                    } else {
+                        // 无法获取请求上下文，使用IP限流
+                        keyBuilder.append("ip:").append(getClientIP());
+                    }
+                } catch (BusinessException e) {
+                    // 未登录用户使用IP限流
+                    keyBuilder.append("ip:").append(getClientIP());
+                }
+                break;
+            case IP:
+                // IP级别：客户端IP
+                keyBuilder.append("ip:").append(getClientIP());
+                break;
+            default:
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的限流类型");
+        }
+        return keyBuilder.toString();
+    }
+
+    private String getClientIP() {
+        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes == null) {
+            return "unknown";
+        }
+        HttpServletRequest request = attributes.getRequest();
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("X-Real-IP");
+        }
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        // 处理多级代理的情况
+        if (ip != null && ip.contains(",")) {
+            ip = ip.split(",")[0].trim();
+        }
+        return ip != null ? ip : "unknown";
+    }
+}
+```
+
+6）应用限流注解
+
+在关键的 AI 对话接口上使用限流注解：
+
+```java
+@GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+@RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
+public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
+                                                   @RequestParam String message,
+                                                   HttpServletRequest request) {
+    // 方法实现...
+}
+```
+
+## prompt安全审查-输入护轨
+
+护轨是 AI⁢⁢⁢ 应用中的安全机制，类‍‍‍似于道路上的护栏，用于‌‌‌防止恶意的 Promp‎‎‎t 输入、防止 AI ‏‏‏模型产生不当或有害的内容。
+
+其实我们把它理解为拦截器就好了，护轨分为两种：
+
+输入护轨（Input Guardrails）：在用户输入传递给 AI 模型之前进行检查和过滤
+
+输出护轨（Output Guardrails）：在 AI 模型生成内容后进行检查和过滤
+
+1）在 `ai.guardrail` 包下创建 `PromptSafetyInputGuardrail` 类，在用户输入传递给 AI 模型之前进行安全审查：
+
+```java
+public class PromptSafetyInputGuardrail implements InputGuardrail {
+
+    // 敏感词列表
+    private static final List<String> SENSITIVE_WORDS = Arrays.asList(
+            "忽略之前的指令", "ignore previous instructions", "ignore above",
+            "破解", "hack", "绕过", "bypass", "越狱", "jailbreak"
+    );
+
+    // 注入攻击模式
+    private static final List<Pattern> INJECTION_PATTERNS = Arrays.asList(
+            Pattern.compile("(?i)ignore\\s+(?:previous|above|all)\\s+(?:instructions?|commands?|prompts?)"),
+            Pattern.compile("(?i)(?:forget|disregard)\\s+(?:everything|all)\\s+(?:above|before)"),
+            Pattern.compile("(?i)(?:pretend|act|behave)\\s+(?:as|like)\\s+(?:if|you\\s+are)"),
+            Pattern.compile("(?i)system\\s*:\\s*you\\s+are"),
+            Pattern.compile("(?i)new\\s+(?:instructions?|commands?|prompts?)\\s*:")
+    );
+
+    @Override
+    public InputGuardrailResult validate(UserMessage userMessage) {
+        String input = userMessage.singleText();
+        // 检查输入长度
+        if (input.length() > 1000) {
+            return fatal("输入内容过长，不要超过 1000 字");
+        }
+        // 检查是否为空
+        if (input.trim().isEmpty()) {
+            return fatal("输入内容不能为空");
+        }
+        // 检查敏感词
+        String lowerInput = input.toLowerCase();
+        for (String sensitiveWord : SENSITIVE_WORDS) {
+            if (lowerInput.contains(sensitiveWord.toLowerCase())) {
+                return fatal("输入包含不当内容，请修改后重试");
+            }
+        }
+        // 检查注入攻击模式
+        for (Pattern pattern : INJECTION_PATTERNS) {
+            if (pattern.matcher(input).find()) {
+                return fatal("检测到恶意输入，请求被拒绝");
+            }
+        }
+        return success();
+    }
+}
+
+```
+
+💡 注意这里⁢⁢⁢实现的只是基础检测，实际生‍‍‍产环境中可能需要更复杂的检‌‌‌测逻辑，包括使用 AI 模‎‎‎型、或者敏感词内容审核服务‏‏‏来检测更复杂的攻击模式。
+
+2）集成护⁢⁢轨到 AI 服务‍ 
+
+在 AI 服务工厂中集成输入护轨：
+
+```java
+yield AiServices.builder(AiCodeGeneratorService.class)
+        .streamingChatModel(reasoningStreamingChatModel)
+        .chatMemoryProvider(memoryId -> chatMemory)
+        .tools(toolManager.getAllTools())
+        .inputGuardrails(new PromptSafetyInputGuardrail())  // 添加输入护轨
+        .build();
+
+```
+
+如果你只想给某个方法使用护轨，可以用下面这种写法：
+
+```java
+public interface Assistant {
+    @InputGuardrails({ FirstInputGuardrail.class, SecondInputGuardrail.class })
+    String chat(String question);
+    
+    String doSomethingElse(String question);
+}
+
+```
+
+## 稳定性优化-输出护轨
+
+由于大模型调用存在一⁢⁢⁢定不确定性，有时候可能返回不符合预期的内‍‍‍容、或者回复中断。所以为了提升系统的稳定‌‌‌性，我们需要让大模型调用失败时能够自动重‎‎‎试，并且还可以实现自定义的重试策略，在 ‏‏‏AI 响应内容不符合要求时也自动重试。
+
+其实 LangChain4j 的 ChatModel 对象本身就支持重试，可以通过配置 `max-retries` 参数修改重试次数（默认值是 2）：
+
+```yaml
+langchain4j:
+  open-ai:
+    chat-model:
+      max-retries: 3
+```
+
+构造 Ch⁢⁢⁢atModel 时也‍‍‍可以设置重试次数： 
+
+```java
+OpenAiChatModel.builder()
+    .maxRetries(3)
+    .build();
+```
+
+如果想自己决定重试时机和策略，可以利用 [LangChain4j 的输出护轨](https://docs.langchain4j.dev/tutorials/guardrails#output-guardrail-outcomes)，可以对 AI 的响应结果进行检测和处理，并且提供了多种结果类型。
+
+其中最有用的几种是：
+
+- `success()`：允许响应通过
+- `retry()`：使用相同的输入重新调用 AI
+- `reprompt()`：添加额外的提示信息后重新调用 AI
+- `fatal()`：中断 AI 响应，抛出异常
+
+1）在 `ai.guardrail` 包下创建 `RetryOutputGuardrail` 类来检查 AI 响应的质量，当响应不符合要求时，返回 reprompt 使用新的提示词重新生成：
+
+```java
+public class RetryOutputGuardrail implements OutputGuardrail {
+
+    @Override
+    public OutputGuardrailResult validate(AiMessage responseFromLLM) {
+        String response = responseFromLLM.text();
+        // 检查响应是否为空或过短
+        if (response == null || response.trim().isEmpty()) {
+            return reprompt("响应内容为空", "请重新生成完整的内容");
+        }
+        if (response.trim().length() < 10) {
+            return reprompt("响应内容过短", "请提供更详细的内容");
+        }
+        // 检查是否包含敏感信息或不当内容
+        if (containsSensitiveContent(response)) {
+            return reprompt("包含敏感信息", "请重新生成内容，避免包含敏感信息");
+        }
+        return success();
+    }
+    
+    /**
+     * 检查是否包含敏感内容
+     */
+    private boolean containsSensitiveContent(String response) {
+        String lowerResponse = response.toLowerCase();
+        String[] sensitiveWords = {
+            "密码", "password", "secret", "token", 
+            "api key", "私钥", "证书", "credential"
+        };
+        for (String word : sensitiveWords) {
+            if (lowerResponse.contains(word)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+```
+
+实际生产环境，对 AI 的响应检测可以更严格些。
+
+2）集成到 AI 服务
+
+在 AI 服务工厂 `AiCodeGeneratorServiceFactory` 中集成输出护轨：
+
+```java
+yield AiServices.builder(AiCodeGeneratorService.class)
+        .chatModel(chatModel)
+        .streamingChatModel(openAiStreamingChatModel)
+        .chatMemory(chatMemory)
+        .inputGuardrails(new PromptSafetyInputGuardrail())
+        .outputGuardrails(new RetryOutputGuardrail())
+        .build();
+
+```
+
+> 注意：👇
+>
+> **经过测试，如果⁢⁢⁢用了输出护轨，可能会导致流式‍‍‍输出的响应不及时，等到 AI‌‌‌ 输出结束才一起返回，所以如‎‎‎果为了追求流式输出效果，建议‏‏‏不要通过护轨的方式进行重试。**
+
+## 工具调用优化
+
+在复杂的 ⁢⁢⁢AI 应用中，AI‍‍‍ 可能会陷入工具调‌‌‌用的无限循环。为了‎‎‎防止这种情况，可以‏‏‏采用 2 种解决方案。
+
+**方案 1 - 设置调用工具次数上限**
+
+最简单的方⁢⁢⁢法是限制 AI‍ ‍在‍单次对话中‌连续‌调用‌工具的最‎‎大次数。只‎需‏要补充 ‏1 行代‏码：
+
+```java
+AiServices.builder(AiCodeGeneratorService.class)
+    .maxSequentialToolsInvocations(20)  // 最多连续调用 20 次工具
+    .build();
+
+```
+
+**方案 2 - 提供退出工具**
+
+还可以为 AI 提供一个专门的退出工具，让它能够主动结束工具调用循环。在 `ai.tools` 包下新建一个继承了 BaseTool 的工具类，这样可以被 ToolManager 自动注册：
+
+```java
+@Slf4j
+@Component
+public class ExitTool extends BaseTool {
+
+    @Override
+    public String getToolName() {
+        return "exit";
+    }
+
+    @Override
+    public String getDisplayName() {
+        return "退出工具调用";
+    }
+
+    /**
+     * 退出工具调用
+     * 当任务完成或无需继续使用工具时调用此方法
+     *
+     * @return 退出确认信息
+     */
+    @Tool("当任务已完成或无需继续调用工具时，使用此工具退出操作，防止循环")
+    public String exit() {
+        log.info("AI 请求退出工具调用");
+        return "不要继续调用工具，可以输出最终结果了";
+    }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments) {
+        return "\n\n[执行结束]\n\n";
+    }
+}
+
+```
+
+这种方案的优⁢⁢⁢势在于给了 AI 更多的主‍动‍‍权。AI 可以根据任‌‌‌务完成情况主动判断是否需‎‎‎要继续调用工具，而不是被‏‏‏动地等待达到调用次数上限。
+
+💡 退出工具的效⁢⁢⁢果其实在自主实现的多步骤智能体中效‍‍果更‍好。所以我建议如果你的应用中很‌‌‌少出现工具调用循环的问题，可以只使‎‎用方‎案 1。因为每多一个工具都会增‏‏‏加系统的复杂性和不稳定性。
+
+此外，还可以尝试下面的方法：
+
+1. 调大对话记忆的容量，否则 AI 会中途断片儿，忘记已经生成了哪些文件
+2. 尝试换其他的 AI 大模型
+3. 优化提示词
+
+## 成本优化
+
+以阿里云百炼的定价为例，不同模型之间的成本差异非常显著：
+
+![image-20260507232113818](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260507232113818.png)
+
+![image-20260507232148256](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260507232148256.png)
+
+对于智能路由这种相对简单的分类任务，我们完全可以使用成本更低的模型。比如用阿里云百炼的 `qwen-turbo` 模型来判断应该使用哪种代码生成方案，其百万 tokens 的输出成本比 deepseek-chat 模型便宜 10 倍以上！
+
+阿里云百炼模型也兼容 Open AI，参考 [官方文档配置](https://help.aliyun.com/zh/model-studio/use-qwen-by-calling-api)。我们可以在配置文件中为智能路由指定阿里云模型的 base-url、api-key 和低成本模型，并且限制一下 max-tokens 防止意外输出，进一步控制成本。
+
+```java
+langchain4j:
+  open-ai:
+    routing-chat-model:
+      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api-key: <Your API Key>
+      model-name: qwen-turbo
+      max-tokens: 100
+      log-requests: true
+      log-responses: true
+```
+
+这样我们就⁢⁢⁢可以在不影响代码生‍‍‍成质量的前提下，显‌‌‌著降低智能路由的成‎‎‎本，而且实测下来分‏‏‏类速度也快了很多~
