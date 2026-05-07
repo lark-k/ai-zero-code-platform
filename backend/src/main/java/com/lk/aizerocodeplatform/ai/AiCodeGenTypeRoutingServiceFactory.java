@@ -22,9 +22,9 @@ public class AiCodeGenTypeRoutingServiceFactory {
     @Bean
     public AiCodeGenTypeRoutingService createAiCodeGenTypeRoutingService() {
         // 动态获取多例的路由 ChatModel，支持并发
-        ChatModel chatModel = SpringContextUtil.getBean("chatModel", ChatModel.class);
+        ChatModel routeChatModel = SpringContextUtil.getBean("routeChatModel", ChatModel.class);
         return AiServices.builder(AiCodeGenTypeRoutingService.class)
-                .chatModel(chatModel)
+                .chatModel(routeChatModel)
                 .build();
     }
 
