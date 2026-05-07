@@ -37,7 +37,7 @@ import java.util.List;
 @Slf4j
 @Configuration
 public class AiCodeGenServiceFactory {
-//    @Resource
+    //    @Resource
 //    private ChatModel chatModel;
 //    @Resource
 //    private StreamingChatModel openAiStreamingChatModel;
@@ -132,6 +132,8 @@ public class AiCodeGenServiceFactory {
                         .inputGuardrails(new PromptSafetyInputGuardrail())
 //                        // 大模型输出检查护轨：检查大模型输出的内容是否合法   注意：使用输出护轨会导致流式输出失效
 //                        .outputGuardrails(new RetryOutputGuardrail())
+                        // 设置最多连续调用20次工具，防止工具的无限调用
+                        .maxSequentialToolsInvocations(20)
                         .build();
             }
             // 普通代码文件使用普通模型
@@ -148,6 +150,8 @@ public class AiCodeGenServiceFactory {
                         .inputGuardrails(new PromptSafetyInputGuardrail())
 //                        // 大模型输出检查护轨：检查大模型输出的内容是否合法       注意：使用输出护轨会导致流式输出失效
 //                        .outputGuardrails(new RetryOutputGuardrail())
+                        // 设置最多连续调用20次工具，防止工具的无限调用
+                        .maxSequentialToolsInvocations(20)
                         .build();
             }
             default ->
