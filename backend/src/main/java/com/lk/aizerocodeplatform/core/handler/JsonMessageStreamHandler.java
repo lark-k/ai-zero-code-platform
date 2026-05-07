@@ -68,7 +68,7 @@ public class JsonMessageStreamHandler {
                     chatHistoryService.addChatHistory(appId, userLoginVO.getId(), aiResponse, ChatMessageTypeEnum.AI.getValue());
                     // 打包构建Vue项目
                     String projectPath = CodeFileSaveConstant.ROOT_PATH + File.separator + "vue_project_" + appId;
-                    vueProjectBuilderd.buildProjectAsync(projectPath);
+                    vueProjectBuilderd.buildProject(projectPath);
                 })
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息

@@ -1221,6 +1221,14 @@ onBeforeUnmount(() => {
       </aside>
 
       <section class="preview-panel">
+        <a-button
+          class="preview-panel__refresh"
+          :disabled="sending || previewRefreshing"
+          @click="refreshPreview({ poll: isVueProjectMode, preserveCurrent: previewReady, silent: false })"
+        >
+          刷新预览
+        </a-button>
+
         <div v-if="previewReady" class="preview-frame-wrap">
           <div v-if="sending || previewRefreshing" class="preview-loading-mask">
             <a-spin />
@@ -1634,8 +1642,17 @@ onBeforeUnmount(() => {
 }
 
 .preview-panel {
+  position: relative;
   overflow: hidden;
   padding: 14px;
+}
+
+.preview-panel__refresh {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 2;
+  border-radius: 999px;
 }
 
 .preview-frame-wrap,
