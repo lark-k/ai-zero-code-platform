@@ -11,6 +11,7 @@ spring:
       port: 6379
       ttl: 3600
       password:
+      database: 0
 langchain4j:
   open-ai:
     chat-model: # 普通聊天模型

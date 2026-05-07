@@ -7,6 +7,8 @@ import com.lk.aizerocodeplatform.constant.UserConstant;
 import com.lk.aizerocodeplatform.model.dto.app.*;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
+import com.lk.aizerocodeplatform.ratelimit.annotation.RateLimit;
+import com.lk.aizerocodeplatform.ratelimit.enums.RateLimitType;
 import com.lk.aizerocodeplatform.service.CodeDownloadService;
 import com.lk.aizerocodeplatform.service.UserService;
 import com.mybatisflex.core.paginate.Page;
@@ -103,6 +105,7 @@ public class AppController {
         return ResultUtils.success(appService.getAppVoByAdmin(id));
     }
 
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
     @Operation(summary = "用户对话生成应用")
     @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> chatToGenCode(@RequestParam String message,
