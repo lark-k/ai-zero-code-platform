@@ -5,6 +5,8 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.IORuntimeException;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
+import cn.hutool.json.JSONUtil;
 import com.lk.aizerocodeplatform.ai.AiCodeGenTypeRoutingServiceFactory;
 import com.lk.aizerocodeplatform.constant.AppConstant;
 import com.lk.aizerocodeplatform.constant.CodeFileSaveConstant;
@@ -35,6 +37,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -45,6 +48,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 
@@ -71,6 +75,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private OssUploadService ossUploadService;
     @Resource
     private AiCodeGenTypeRoutingServiceFactory aiCodeGenTypeRoutingServiceFactory;
+    @Resource
+    private RedisTemplate<String, Object> redisTemplate;
 
     @Override
     public Long addApp(AddAppDTO addAppDTO, HttpServletRequest request) {
@@ -166,6 +172,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         if (!success) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用删除失败");
+        }
+        // 判断删除的应用是否是精选应用，如果是精选应用还要删除精选应用的缓存
+        if (app.getPriority() == 99 || app.getPriority() == 999) {
+            clearGoodAppPageCache();
         }
         return true;
     }
@@ -292,6 +302,17 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         ThrowUtils.throwIf(pageSize > 20, ErrorCode.PARAMS_ERROR, "每页最多查询 20 个应用");
         // 设置查询条件：精选应用
         queryAppDTO.setPriority(AppConstant.GOOD_APP_PRIORITY);
+
+        // 补齐查询条件后，根据查询条件生成redis的key
+        String cacheKey = buildGoodAppPageCacheKey(queryAppDTO);
+
+        // 1. 先查缓存
+        Object cacheObj = redisTemplate.opsForValue().get(cacheKey);
+        if (cacheObj != null) {
+            return (Page<AppVO>) cacheObj;
+        }
+
+        // 2. 缓存中没有则再查数据库
         // 根据查询请求参数获取封装的查询条件
         QueryWrapper queryWrapper = getQueryWrapperForGood(queryAppDTO);
         Page<App> pageOfApp = this.page(Page.of(pageNum, pageSize), queryWrapper);
@@ -302,6 +323,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         Page<AppVO> appVoPage = new Page<>(pageNum, pageSize, pageOfApp.getTotalRow());
         appVoPage.setRecords(pageOfAppVoRecords);
         appVoPage.setTotalPage(pageOfApp.getTotalPage());
+
+        // 3. 将查询数据库得到的内容存入缓存 5 分钟 + 随机几十秒，避免同一时间大量过期
+        long timeout = 300 + RandomUtil.randomInt(0, 60);
+        redisTemplate.opsForValue().set(cacheKey, appVoPage, timeout, TimeUnit.SECONDS);
+
         return appVoPage;
     }
 
@@ -311,15 +337,15 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         // 准备删除应用的id
         Long id = deleteAppDTO.getId();
         App app = getById(id);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
         String deployKey = app.getDeployKey();
         String codeGenType = app.getCodeGenType();
         // 未部署的文件路径
         String filePath = CodeFileSaveConstant.ROOT_PATH + File.separator + id + "_" + codeGenType;
         // 已部署的文件路径
         String deployFilePath = CodeFileSaveConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
-        if (app == null) {
-            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
-        }
         boolean success = removeById(id);
         try {
             // 删除代码文件
@@ -338,6 +364,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (!success) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用删除失败");
         }
+        // 判断删除的应用是否是精选应用，如果是精选应用还要删除精选应用的缓存
+        if (app.getPriority() == 99 || app.getPriority() == 999) {
+            clearGoodAppPageCache();
+        }
         return true;
     }
 
@@ -352,6 +382,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         // 查询该id是否存在应用
         App app = getById(id);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        // 拿到修改前的应用优先级
+        Integer oldPriority = app.getPriority();
         App newApp = new App();
         newApp.setId(id);
         newApp.setAppName(appName);
@@ -361,6 +393,24 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         boolean success = updateById(newApp);
         if (!success) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用更新失败");
+        }
+        // 更新后最终的 priority
+        Integer finalPriority = priority != null ? priority : oldPriority;
+        // 只要更新前或更新后属于精选，就删缓存
+        boolean wasGoodApp = oldPriority != null
+                && (oldPriority.equals(AppConstant.GOOD_APP_PRIORITY)
+                || oldPriority.equals(AppConstant.TOP_GOOD_APP_PRIORITY));
+
+        boolean isGoodApp = finalPriority != null
+                && (finalPriority.equals(AppConstant.GOOD_APP_PRIORITY)
+                || finalPriority.equals(AppConstant.TOP_GOOD_APP_PRIORITY));
+
+        if (wasGoodApp || isGoodApp) {
+            try {
+                clearGoodAppPageCache();
+            } catch (Exception e) {
+                log.error("删除精选应用缓存失败, appId={}", id, e);
+            }
         }
         return true;
     }
@@ -531,6 +581,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (!success) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "置顶失败");
         }
+        // 删除精选应用的缓存
+        clearGoodAppPageCache();
         return true;
     }
 
@@ -551,6 +603,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         if (!success) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "取消置顶失败");
         }
+        // 删除精选应用的缓存
+        clearGoodAppPageCache();
         return true;
     }
 
@@ -601,4 +655,29 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         // 执行原来的删除逻辑，根据id删除应用
         return super.removeById(id);
     }
+
+    /**
+     * 构建精选应用分页查询的redis中的key
+     *
+     * @param queryAppDTO 分页查询条件
+     * @return redis中的key
+     */
+    private String buildGoodAppPageCacheKey(QueryAppDTO queryAppDTO) {
+        // 将查询条件转换为json字符串
+        String rawKey = JSONUtil.toJsonStr(queryAppDTO);
+        // 对json字符串进行md5加密
+        return "app:good:page:" + DigestUtil.md5Hex(rawKey);
+    }
+
+    /**
+     * 精选应用改变后，删除精选应用缓存
+     */
+    private void clearGoodAppPageCache() {
+        Set<String> keys = redisTemplate.keys("app:good:page:*");
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+        }
+    }
+
+
 }
