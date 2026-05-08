@@ -11,21 +11,8 @@ import {
   formatVisualEditorSelectionPrompt,
   useVisualEditor,
 } from '@/composables/useVisualEditor.ts'
+import { useAppChatSessionsStore, type ChatSessionMessage } from '@/stores/appChatSessions.ts'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
-
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  createTime?: string
-  renderedHtml?: string
-  rawContent?: string
-  pendingContent?: string
-  previewOnComplete?: boolean
-  streamFinished?: boolean
-  flushFrameId?: number
-  streaming?: boolean
-}
 
 interface StructuredStreamPayload {
   v?: string
@@ -50,19 +37,16 @@ const PREVIEW_POLL_MAX_ATTEMPTS = 45
 
 const route = useRoute()
 const router = useRouter()
+const chatSessionsStore = useAppChatSessionsStore()
 const loginUserStore = useLoginUserStore()
 
 const app = ref<API.AppVO>()
 const loadingApp = ref(false)
 const loadingHistory = ref(false)
 const loadingMoreHistory = ref(false)
-const sending = ref(false)
 const deploying = ref(false)
 const canceling = ref(false)
 const inputMessage = ref('')
-const messages = ref<ChatMessage[]>([])
-const historyCursor = ref<string>()
-const hasMoreHistory = ref(false)
 const previewReady = ref(false)
 const previewHtml = ref('')
 const previewRefreshing = ref(false)
@@ -73,8 +57,14 @@ const previewFrameRef = ref<HTMLIFrameElement | null>(null)
 
 let streamAbortController: AbortController | null = null
 let previewRequestId = 0
+let pageActive = false
+let syncingSessionArtifacts = false
 
 const appId = computed(() => String(route.params.id || ''))
+const chatSession = computed(() => chatSessionsStore.ensureSession(appId.value))
+const messages = computed(() => chatSession.value.messages)
+const sending = computed(() => chatSession.value.sending)
+const hasMoreHistory = computed(() => chatSession.value.hasMoreHistory)
 const isVueProjectMode = computed(() => app.value?.codeGenType === 'vue_project')
 const appName = computed(() => app.value?.appName || '\u672a\u547d\u540d\u5e94\u7528')
 const appAuthorInitial = computed(() => {
@@ -184,6 +174,17 @@ watch(
     syncVisualEditorFrame()
   },
   { flush: 'post' },
+)
+
+watch(
+  () => [chatSession.value.pendingHistorySync, chatSession.value.pendingPreviewRefresh, sending.value],
+  async ([shouldSyncHistory, shouldSyncPreview, isSending]) => {
+    if (!pageActive || isSending || (!shouldSyncHistory && !shouldSyncPreview)) {
+      return
+    }
+
+    await syncCompletedSessionState()
+  },
 )
 const hasHtmlCodeBlock = (content: string) => /```html\s*[\r\n]/i.test(content)
 const hasMultiFileCodeBlocks = (content: string) =>
@@ -351,17 +352,10 @@ const loadApp = async () => {
   }
 }
 
-const closeStream = () => {
-  if (streamAbortController) {
-    streamAbortController.abort()
-    streamAbortController = null
-  }
-}
-
-const getChatRole = (messageType?: string): ChatMessage['role'] =>
+const getChatRole = (messageType?: string): ChatSessionMessage['role'] =>
   messageType === 'user' ? 'user' : 'assistant'
 
-const toChatMessage = (record: API.ChatHistory): ChatMessage => ({
+const toChatMessage = (record: API.ChatHistory): ChatSessionMessage => ({
   id: String(record.id ?? `${record.createTime}-${record.messageType}`),
   role: getChatRole(record.messageType),
   content: record.message || '',
@@ -376,18 +370,18 @@ const appendHistoryMessages = (records: API.ChatHistory[], mode: 'replace' | 'pr
     .map(toChatMessage)
 
   if (mode === 'replace') {
-    messages.value = sortedMessages
+    chatSession.value.messages = sortedMessages
     return
   }
 
-  const existingIds = new Set(messages.value.map((item) => item.id))
+  const existingIds = new Set(chatSession.value.messages.map((item) => item.id))
   const nextMessages = sortedMessages.filter((item) => !existingIds.has(item.id))
-  messages.value = [...nextMessages, ...messages.value]
+  chatSession.value.messages = [...nextMessages, ...chatSession.value.messages]
 }
 
 const loadHistory = async (loadMore = false) => {
   if (!appId.value || !loginUserStore.loginUser.id) {
-    return
+    return false
   }
 
   const previousScrollHeight = messageListRef.value?.scrollHeight ?? 0
@@ -395,13 +389,13 @@ const loadHistory = async (loadMore = false) => {
 
   if (loadMore) {
     if (!hasMoreHistory.value || loadingMoreHistory.value) {
-      return
+      return false
     }
     loadingMoreHistory.value = true
   } else {
     loadingHistory.value = true
-    historyCursor.value = undefined
-    hasMoreHistory.value = false
+    chatSession.value.historyCursor = undefined
+    chatSession.value.hasMoreHistory = false
   }
 
   try {
@@ -409,19 +403,21 @@ const loadHistory = async (loadMore = false) => {
       appId: appId.value,
       userId: loginUserStore.loginUser.id,
       pageSize: HISTORY_PAGE_SIZE,
-      ...(loadMore && historyCursor.value ? { lastCreateTime: historyCursor.value } : {}),
+      ...(loadMore && chatSession.value.historyCursor
+        ? { lastCreateTime: chatSession.value.historyCursor }
+        : {}),
     })
 
     if (res.data.code !== 0) {
       message.error(res.data.message || 'Failed to load chat history')
-      return
+      return false
     }
 
     const records = res.data.data?.records || []
     appendHistoryMessages(records, loadMore ? 'prepend' : 'replace')
     const oldestRecord = records[records.length - 1]
-    historyCursor.value = oldestRecord?.createTime
-    hasMoreHistory.value = records.length >= HISTORY_PAGE_SIZE
+    chatSession.value.historyCursor = oldestRecord?.createTime
+    chatSession.value.hasMoreHistory = records.length >= HISTORY_PAGE_SIZE
 
     if (!loadMore) {
       await scrollToBottom()
@@ -432,14 +428,52 @@ const loadHistory = async (loadMore = false) => {
         messageListRef.value.scrollTop = nextScrollHeight - previousScrollHeight + previousScrollTop
       }
     }
+    return true
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'Failed to load chat history')
+    return false
   } finally {
     if (loadMore) {
       loadingMoreHistory.value = false
     } else {
       loadingHistory.value = false
     }
+  }
+}
+
+const syncCompletedSessionState = async () => {
+  if (!pageActive || syncingSessionArtifacts || sending.value) {
+    return
+  }
+
+  const shouldSyncHistory = chatSession.value.pendingHistorySync
+  const shouldSyncPreview = chatSession.value.pendingPreviewRefresh
+
+  if (!shouldSyncHistory && !shouldSyncPreview) {
+    return
+  }
+
+  syncingSessionArtifacts = true
+  try {
+    if (shouldSyncHistory) {
+      const synced = await loadHistory()
+      if (synced) {
+        chatSession.value.pendingHistorySync = false
+      }
+    }
+
+    if (shouldSyncPreview) {
+      const refreshed = await refreshPreview({
+        poll: isVueProjectMode.value,
+        preserveCurrent: previewReady.value,
+        silent: true,
+      })
+      if (refreshed) {
+        chatSession.value.pendingPreviewRefresh = false
+      }
+    }
+  } finally {
+    syncingSessionArtifacts = false
   }
 }
 
@@ -740,7 +774,7 @@ const parseSseFrame = (frame: string) => {
   }
 }
 
-const appendAssistantContent = (assistantMessage: ChatMessage, content: string) => {
+const appendAssistantContent = (assistantMessage: ChatSessionMessage, content: string) => {
   if (!content) {
     return
   }
@@ -748,88 +782,114 @@ const appendAssistantContent = (assistantMessage: ChatMessage, content: string) 
   assistantMessage.renderedHtml = renderMarkdown(assistantMessage.content)
 }
 
-const completeAssistantMessage = (assistantMessage: ChatMessage) => {
+const completeAssistantMessage = (
+  assistantMessage: ChatSessionMessage,
+  sessionState = chatSession.value,
+) => {
   if (assistantMessage.flushFrameId) {
     window.cancelAnimationFrame(assistantMessage.flushFrameId)
     assistantMessage.flushFrameId = undefined
   }
 
   assistantMessage.streaming = false
-  sending.value = false
+  sessionState.sending = false
+  sessionState.pendingHistorySync = true
 
   if (assistantMessage.previewOnComplete) {
-    void refreshPreview({
-      poll: isVueProjectMode.value,
-      preserveCurrent: true,
-      silent: true,
-    })
+    sessionState.pendingPreviewRefresh = true
   }
 
-  void scrollToBottom()
+  if (pageActive) {
+    void syncCompletedSessionState()
+    void scrollToBottom()
+  }
 }
 
-const flushAssistantPendingContent = (assistantMessage: ChatMessage) => {
+const flushAssistantPendingContent = (
+  assistantMessage: ChatSessionMessage,
+  sessionState = chatSession.value,
+) => {
   assistantMessage.flushFrameId = undefined
 
   const pending = assistantMessage.pendingContent || ''
   if (pending) {
     assistantMessage.pendingContent = ''
     appendAssistantContent(assistantMessage, pending)
-    void scrollToBottom()
+    if (pageActive) {
+      void scrollToBottom()
+    }
   }
 
   if (assistantMessage.pendingContent) {
-    scheduleAssistantFlush(assistantMessage)
+    scheduleAssistantFlush(assistantMessage, sessionState)
     return
   }
 
   if (assistantMessage.streamFinished) {
-    completeAssistantMessage(assistantMessage)
+    completeAssistantMessage(assistantMessage, sessionState)
   }
 }
 
-const scheduleAssistantFlush = (assistantMessage: ChatMessage) => {
+const scheduleAssistantFlush = (
+  assistantMessage: ChatSessionMessage,
+  sessionState = chatSession.value,
+) => {
   if (assistantMessage.flushFrameId) {
     return
   }
 
   assistantMessage.flushFrameId = window.requestAnimationFrame(() => {
-    flushAssistantPendingContent(assistantMessage)
+    flushAssistantPendingContent(assistantMessage, sessionState)
   })
 }
 
-const queueAssistantChunk = (assistantMessage: ChatMessage, rawData: string) => {
+const queueAssistantChunk = (
+  assistantMessage: ChatSessionMessage,
+  rawData: string,
+  sessionState = chatSession.value,
+) => {
   const chunk = extractAssistantChunk(rawData)
   if (!chunk) {
     return
   }
   assistantMessage.rawContent = `${assistantMessage.rawContent || ''}${chunk}`
   assistantMessage.pendingContent = `${assistantMessage.pendingContent || ''}${chunk}`
-  scheduleAssistantFlush(assistantMessage)
+  scheduleAssistantFlush(assistantMessage, sessionState)
 }
 
-const finishAssistantStream = (assistantMessage: ChatMessage) => {
+const finishAssistantStream = (
+  assistantMessage: ChatSessionMessage,
+  sessionState = chatSession.value,
+) => {
   assistantMessage.previewOnComplete = shouldRefreshPreviewFromResponse(
     assistantMessage.rawContent || assistantMessage.content,
   )
   assistantMessage.streamFinished = true
   if (assistantMessage.pendingContent) {
-    scheduleAssistantFlush(assistantMessage)
+    scheduleAssistantFlush(assistantMessage, sessionState)
     return
   }
-  completeAssistantMessage(assistantMessage)
+  completeAssistantMessage(assistantMessage, sessionState)
 }
 
-const failAssistantStream = (assistantMessage: ChatMessage, errorText: string) => {
+const failAssistantStream = (
+  assistantMessage: ChatSessionMessage,
+  errorText: string,
+  sessionState = chatSession.value,
+) => {
   if (!assistantMessage.streaming) {
     return
   }
   assistantMessage.streamFinished = true
   assistantMessage.pendingContent ||= errorText
-  scheduleAssistantFlush(assistantMessage)
+  scheduleAssistantFlush(assistantMessage, sessionState)
 }
 
-const consumeAssistantStream = async (assistantMessage: ChatMessage, text: string) => {
+const consumeAssistantStream = async (
+  sessionState: ReturnType<typeof chatSessionsStore.ensureSession>,
+  assistantMessage: ChatSessionMessage,
+  text: string,
+) => {
   const params = new URLSearchParams({
     appId: appId.value,
     message: text,
@@ -880,11 +940,11 @@ const consumeAssistantStream = async (assistantMessage: ChatMessage, text: strin
 
         const parsedFrame = parseSseFrame(frame)
         if (parsedFrame?.event === 'done') {
-          finishAssistantStream(assistantMessage)
+          finishAssistantStream(assistantMessage, sessionState)
           return
         }
         if (parsedFrame?.data) {
-          queueAssistantChunk(assistantMessage, parsedFrame.data)
+          queueAssistantChunk(assistantMessage, parsedFrame.data, sessionState)
         }
 
         frameBoundaryIndex = buffer.indexOf('\n\n')
@@ -903,10 +963,10 @@ const consumeAssistantStream = async (assistantMessage: ChatMessage, text: strin
             if (frameError) {
               throw new Error(frameError.message || 'Generation failed')
             }
-            queueAssistantChunk(assistantMessage, parsedFrame.data)
+            queueAssistantChunk(assistantMessage, parsedFrame.data, sessionState)
           }
         }
-        finishAssistantStream(assistantMessage)
+        finishAssistantStream(assistantMessage, sessionState)
         return
       }
     }
@@ -915,9 +975,9 @@ const consumeAssistantStream = async (assistantMessage: ChatMessage, text: strin
       return
     }
     const errorMessage = error instanceof Error ? error.message : 'Streaming connection was interrupted'
-    failAssistantStream(assistantMessage, errorMessage)
+    failAssistantStream(assistantMessage, errorMessage, sessionState)
     message.error(errorMessage)
-    sending.value = false
+    sessionState.sending = false
   } finally {
     if (streamAbortController === controller) {
       streamAbortController = null
@@ -940,9 +1000,11 @@ const sendMessage = async (content = inputMessage.value) => {
     return
   }
 
-  closeStream()
   inputMessage.value = ''
-  sending.value = true
+  const currentSession = chatSession.value
+  currentSession.sending = true
+  currentSession.pendingHistorySync = false
+  currentSession.pendingPreviewRefresh = false
 
   const prompt = selectedVisualElement.value
     ? `${text}\n\n${formatVisualEditorSelectionPrompt(selectedVisualElement.value)}`
@@ -950,12 +1012,12 @@ const sendMessage = async (content = inputMessage.value) => {
   clearSelectedElement()
   disableVisualEditing()
 
-  const userMessage: ChatMessage = {
+  const userMessage: ChatSessionMessage = {
     id: `${Date.now()}-user`,
     role: 'user',
     content: prompt,
   }
-  const assistantMessage = reactive<ChatMessage>({
+  const assistantMessage = reactive<ChatSessionMessage>({
     id: `${Date.now()}-assistant`,
     role: 'assistant',
     content: '',
@@ -967,9 +1029,9 @@ const sendMessage = async (content = inputMessage.value) => {
     streaming: true,
   })
 
-  messages.value.push(userMessage, assistantMessage)
+  currentSession.messages.push(userMessage, assistantMessage)
   await scrollToBottom()
-  void consumeAssistantStream(assistantMessage, prompt)
+  void consumeAssistantStream(currentSession, assistantMessage, prompt)
 }
 
 const deployApp = async () => {
@@ -1047,13 +1109,17 @@ const goEdit = () => {
 const initAutoMessage = async () => {
   const prompt = typeof route.query.prompt === 'string' ? route.query.prompt : ''
   if (!prompt) {
-    await refreshPreview({ silent: true })
+    if (!sending.value && !chatSession.value.pendingPreviewRefresh) {
+      await refreshPreview({ silent: true })
+    }
     return
   }
 
   const guardKey = `app-chat-auto-sent-${appId.value}-${prompt}`
   if (window.sessionStorage.getItem(guardKey)) {
-    await refreshPreview({ silent: true })
+    if (!sending.value && !chatSession.value.pendingPreviewRefresh) {
+      await refreshPreview({ silent: true })
+    }
     return
   }
 
@@ -1062,20 +1128,22 @@ const initAutoMessage = async () => {
 }
 
 onMounted(async () => {
+  pageActive = true
   await loginUserStore.fetchLoginUser()
   await loadApp()
-  await loadHistory()
+  if (!messages.value.length) {
+    await loadHistory()
+  } else {
+    await scrollToBottom()
+  }
+  await syncCompletedSessionState()
   await initAutoMessage()
 })
 
 onBeforeUnmount(() => {
-  closeStream()
-  messages.value.forEach((item) => {
-    if (item.flushFrameId) {
-      window.cancelAnimationFrame(item.flushFrameId)
-      item.flushFrameId = undefined
-    }
-  })
+  pageActive = false
+  disableVisualEditing()
+  clearSelectedElement()
 })
 </script>
 
