@@ -12467,3 +12467,176 @@ ai_model_tokens_total{app_id="313129227198590976",model_name="deepseek-chat",tok
 }
 ```
 
+# 十二、微服务改造
+
+## 1、微服务模块抽取
+
+见gitee仓库源码
+
+## 2、Nacos服务注册与发现
+
+[Nacos](https://nacos.io/docs/v2.3/what-is-nacos) 是我们选择的服务注册中心和配置中心，负责管理所有微服务的注册发现和配置信息。
+
+根据 [版本兼容性要求](https://sca.aliyun.com/docs/2023/overview/version-explain)，我们必须选择 Nacos `v2.3.2` 版本。可以从 [Nacos 官方网站下载](https://nacos.io/download/release-history) 对应版本的安装包。
+
+解压后，进入 bin 目录运行以下命令：
+
+```bash
+# Windows
+startup.cmd -m standalone
+
+# Linux / Mac
+sh startup.sh -m standalone
+
+```
+
+启动成功后，可以访问 http://localhost:8848/nacos 进入 Nacos 控制台：
+
+如果需要账号密码的话，默认都是 nacos。
+
+## 3、Dubbo服务间调用
+
+见gitee仓库源码
+
+## 4、Higress网关
+
+### 安装
+
+Higre⁢⁢⁢ss 的安装需要‍‍ ‍Docker ‌‌环境‌支持，如果没‎‎有安装‎ Dock‏‏er 的‏话，必须先安装！
+
+推荐直接 [安装 Docker Desktop](https://www.docker.com/products/docker-desktop/)，会自动安装 Docker 以及可视化管理软件。
+
+但是要注意，Windows 上想运行 Docker 的话，必须要安装 WSL（Linux 子系统），[参考安装文档](https://learn.microsoft.com/zh-cn/windows/wsl/install)。
+
+![image-20260509234737132](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509234737132.png)
+
+安装好 D⁢⁢⁢ocker 后‍，‍可‍以使用以下‌命令‌在本‌地启动‎ Hi‎gre‎s‏s：
+
+```shell
+docker run -d --rm --name higress-ai -v ${PWD}:/data -e O11Y=on \
+        -p 8001:8001 -p 8080:8080 -p 8443:8443  \
+        higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/all-in-one:latest
+```
+
+监听端口说明：
+
+- 8001 端口：Higress UI 控制台入口
+- 8080 端口：网关 HTTP 协议入口
+- 8443 端口：网关 HTTPS 协议入口
+
+可以用 `docker ps` 命令查看启动状态：
+
+![image-20260509234926890](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509234926890.png)
+
+Docker Desktop 中能看到运行的容器：
+
+![image-20260509234940600](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509234940600.png)
+
+启动成功后⁢⁢⁢，可以通过 8‍0‍0‍1 端口访‌问 ‌Hi‌gre‎ss ‎控制台‎：
+
+默认用户名和密码都是admin
+
+![image-20260509234956209](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509234956209.png)
+
+### 服务来源配置
+
+在 Hig⁢⁢⁢ress 控制‍台‍中‍配置服务来‌源，‌可以‌从 N‎aco‎s 中‎获‏取服务来‏源：
+
+![image-20260509235108283](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235108283.png)
+
+需要注意的⁢⁢⁢是，注册中心地址不‍‍‍支持 127.0.‌‌‌0.1 或 loc‎‎‎alhost，需要‏‏‏使用本机的内网地址。azAyPkBn9bmDMvmKlOvHVqF3qtPOquzOmz0sIG5Q6nk=
+
+Windows 系统通过 `ipconfig` 命令查看：
+
+![image-20260509235125159](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235125159.png)
+
+配置完成后⁢⁢⁢，Higres‍s‍ ‍会自动发现‌在 ‌Na‌cos‎ 中注‎册的所‎有‏微服务：
+
+![image-20260509235136519](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235136519.png)
+
+但是 Dubbo + Nacos 默认只注册 Dubbo 服务（RPC接口），而不注册 HTTP 接口。我们对外提供的服务都没有被发现，需要手动注册：
+
+![image-20260509235149817](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235149817.png)
+
+所有服务注册完成：
+
+![image-20260509235207603](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235207603.png)
+
+### 路由配置
+
+手动配置路由规则，为每个服务创建对应的路由：
+
+![image-20260509235226884](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235226884.png)
+
+选择对应的服务并配置路由规则：
+
+![image-20260509235241759](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235241759.png)
+
+这样一来，前端只需要访问网关的地址 `localhost:8080/api/user/xxx`，就会自动转发到对应的服务 `localhost:8124/api/user/xxx`。
+
+路由配置完成：
+
+![image-20260509235325913](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235325913.png)
+
+完成路由配置后⁢⁢⁢，需要修改前端 vite ‍‍‍请求代理地址为 8080 ‌‌‌端口，然后就可以利用前端来‎‎‎测试完整业务流程了，能正常‏‏‏登录和生成网站就说明配置成功。
+
+### 插件配置
+
+Higre⁢⁢⁢ss 提供了丰‍富‍的‍插件功能，‌可以‌满足‌不同场景‎‎的需求：
+
+#### CORS 跨域配置
+
+可以全局配置 CORS 跨域支持：
+
+![image-20260509235420005](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235420005.png)
+
+支持表单填写或者 YAML 配置文件：
+
+![image-20260509235431970](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235431970.png)
+
+也可以单独针对某个路由配置跨域插件：
+
+![image-20260509235444302](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235444302.png)
+
+如图：
+
+![image-20260509235453218](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235453218.png)
+
+![image-20260509235502293](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235502293.png)
+
+#### 权限认证插件
+
+Higress 提供了多种权限认证插件：![image-20260509235521931](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235521931.png)
+
+比如 Ke⁢⁢⁢y 认证是一个典‍‍型‍的 API 认‌‌证场‌景（想想调用‎‎ AI‎ 时输入的‏‏ API‏ Key）：
+
+![image-20260509235534428](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235534428.png)
+
+#### 安全性插件
+
+可以配置 IP 限制、请求屏蔽等安全插件：
+
+![image-20260509235546762](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235546762.png)
+
+比如限制禁止某个 IP 访问：
+
+![image-20260509235556097](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235556097.png)
+
+还可以利用请求屏蔽插件提高安全性。测试一下，禁止访问 `/api/user/get/login` 接口：
+
+![image-20260509235608677](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235608677.png)
+
+配置后该接⁢⁢⁢口会返回 404‍，‍因为‍被网关拦截‌了，‌都到不了‌用户‎服务：  
+
+![image-20260509235622841](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235622841.png)
+
+#### 限流插件
+
+还可以配置限流插件，在网关层面控制请求频率：
+
+![image-20260509235635754](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235635754.png)
+
+比较常用的是⁢⁢⁢基于 Key 进行限流‍‍‍，Key 可以从请求头‌‌‌或 URL 参数中获取‎‎‎，比如根据请求参数中的‏‏‏ appId 限流。
+
+![image-20260509235650317](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235650317.png)
+

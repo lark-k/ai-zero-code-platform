@@ -83,8 +83,8 @@ const formatTime = (time?: string) => {
   })
 }
 
-const getStaticUrl = (id?: number | string) => (id ? `http://localhost:8123/api/static/${id}` : '')
-const getDeployUrl = (deployKey?: string) => (deployKey ? `http://localhost/${deployKey}` : '')
+const getStaticUrl = (id?: number | string) => (id ? `/api/static/${id}` : '')
+const getDeployUrl = (deployKey?: string) => (deployKey ? `/api/static/deploy/${deployKey}/` : '')
 
 const shouldRenderPreview = (id?: number | string) => {
   if (!id) {

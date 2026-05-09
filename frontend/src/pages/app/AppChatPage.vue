@@ -30,7 +30,7 @@ interface ApiErrorPayload {
   message?: string
 }
 
-const API_BASE_URL = 'http://localhost:8123/api'
+const API_BASE_URL = '/api'
 const HISTORY_PAGE_SIZE = 20
 const PREVIEW_POLL_DELAY = 2000
 const PREVIEW_POLL_MAX_ATTEMPTS = 45
@@ -102,7 +102,9 @@ const isOwner = computed(
 )
 const canManage = computed(() => loginUserStore.isAdmin || isOwner.value)
 const isDeployed = computed(() => Boolean(app.value?.deployKey))
-const deployedUrl = computed(() => (app.value?.deployKey ? `http://localhost/${app.value.deployKey}` : ''))
+const deployedUrl = computed(() =>
+  app.value?.deployKey ? `/api/static/deploy/${app.value.deployKey}/` : '',
+)
 const previewRootUrl = computed(() => `/api/static/${appId.value}/`)
 const previewIframeSrc = computed(() =>
   isVueProjectMode.value ? `/api/static/${appId.value}/?t=${previewVersion.value}` : '',

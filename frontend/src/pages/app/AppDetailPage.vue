@@ -7,7 +7,7 @@ import { appDeploy, cancelDeploy, getAppVoById } from '@/api/yingyongmokuaixiang
 import { formatDateTime } from '@/constants/featuredApply'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 
-const API_BASE_URL = 'http://localhost:8123/api'
+const API_BASE_URL = '/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,7 +24,9 @@ const isOwner = computed(
   () => Boolean(loginUserStore.loginUser.id) && app.value?.userId === loginUserStore.loginUser.id,
 )
 const canManage = computed(() => loginUserStore.isAdmin || isOwner.value)
-const deployedUrl = computed(() => (app.value?.deployKey ? `http://localhost/${app.value.deployKey}` : ''))
+const deployedUrl = computed(() =>
+  app.value?.deployKey ? `/api/static/deploy/${app.value.deployKey}/` : '',
+)
 const isDeployed = computed(() => Boolean(app.value?.deployKey))
 
 const loadApp = async () => {
