@@ -10548,3 +10548,1922 @@ langchain4j:
 ```
 
 这样我们就⁢⁢⁢可以在不影响代码生‍‍‍成质量的前提下，显‌‌‌著降低智能路由的成‎‎‎本，而且实测下来分‏‏‏类速度也快了很多~
+
+# 十一、可观测性
+
+## 1、接入ARMS系统监控
+
+首先访问 [ARMS 控制台](https://arms.console.aliyun.com/?accounttraceid=f665b274f2dd4a82b30ae1ac90df7514lmmw#/intgr/integrations?menu=server-app)，第一次使用需要开通服务。
+
+进入接入中心，选择 Java 应用监控：
+
+![image-20260508153538628](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508153538628.png)
+
+选择手动安装 Agent：
+
+![image-20260508153557609](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508153557609.png)
+
+按照指引下载 Agent 包：
+
+![image-20260508153621414](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508153621414.png)
+
+从这里下载：
+
+![image-20260508153636447](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508153636447.png)
+
+下载完成后解压到合适的位置，比如这里的解压路径是 `D:\ARMS\AliyunJavaAgent`。
+
+复制启动命⁢⁢⁢令，注意替换目录‍‍路‍径和应用名称。‌‌应用‌名称可以自定‎‎义，建‎议使用有意‏‏义的名称便于‏后续管理。
+
+你也可以选择开启应用安全功能，它能够提供 [应用层面的安全监控能力](https://help.aliyun.com/zh/arms/application-security/product-overview/what-is-application-security?spm=5176.arms.console-base_help.dexternal.7c48f167HlhHqR)，帮你抵御一些漏洞攻击。
+
+![image-20260508153820336](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508153820336.png)
+
+在 IDE 中编辑项目的启动配置，将复制的命令参数添加到 `VM options` 中：
+
+```bash
+-javaagent:D:/ARMS/AliyunJavaAgent/aliyun-java-agent.jar
+-Darms.licenseKey=xxx
+-Darms.appName=yu-ai-code-mother
+```
+
+⚠️ 注意，需要将参数间的换行替换为空格！
+
+```bash
+-javaagent:D:/ARMS/AliyunJavaAgent/aliyun-java-agent.jar -Darms.licenseKey=e2qj8jwxx4@1091ce227b62069 -Darms.appName=ai-zero-code-platform 
+```
+
+![image-20260508154144903](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508154144903.png)
+
+接下来启动⁢⁢项目⁢。启动会比‍平‍时‍慢一些，这‌是正‌常的‌，因为‎引入 ‎Age‎n‏t 会拖慢启‏动速‏度。
+
+看到下图信息就表示启动成功了，默认数据会上报到杭州区域：
+
+![image-20260508154158875](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508154158875.png)
+
+最后，回到⁢⁢⁢ ARMS 控‍制‍台‍的应用列表‌页面‌，就‌能看到‎刚刚接‎入的应‎用‏了：
+
+![image-20260508154221147](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508154221147.png)
+
+> 监控平台背后的技术原理👇
+>
+> **探针技术**：
+>
+> 首先，数据是通过探针技术 `Java Agent` 收集的。Java Agent 是 JVM 提供的机制，允许在 Java 应用启动时或运行时动态修改字节码，从而实现无侵入式的监控。
+>
+> 利用探针进⁢行监控的原理如下：‍
+>
+> - 字节码增强：Java Agent 通过 Java Instrumentation API 在类加载时拦截字节码，动态插入监控代码。
+> - 方法织入：在关键方法（如 HTTP 请求处理、数据库调用等）的入口和出口处织入监控逻辑，记录执行时间、参数、返回值等信息。
+> - 数据收集：织入的监控代码会收集各种性能数据，并通过网络传输到监控平台。
+> - 链路追踪：通过在请求上下文中传递唯一标识，将分布式调用链串联起来，形成完整的 Trace。
+>
+> 这种方式的⁢⁢⁢优势在于完全不需要‍‍‍修改业务代码，只需‌‌‌要在 JVM 启动‎‎‎时指定 Agent‏‏‏，就能获得全面的监控能力。
+
+## 2、接入Prometheus + Grafana 业务监控
+
+### 环境准备
+
+#### Prometheus 安装
+
+1）访问 [Prometheus 下载页面](https://prometheus.io/download/)，选择对应的操作系统和架构：
+
+2）下载并解压到不包含中文路径的目录：
+
+3）查看默认配置文件 `prometheus.yml`：
+
+```yaml
+# 全局配置
+global:
+  scrape_interval: 15s # 全局抓取间隔，默认每15秒抓取一次
+  evaluation_interval: 15s # 规则评估间隔
+
+# 告警管理器配置（可选）
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+# 规则文件配置
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# 抓取配置
+scrape_configs:
+  # Prometheus 自身监控
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          app: "prometheus"
+
+```
+
+默认配置会⁢⁢⁢监控 Prom‍e‍t‍heus ‌自己‌，这‌样我们‎可以先‎测试环境是‎‏否正常‏。
+
+💡 [Prometheus Rules](https://prometheus.io/docs/prometheus/latest/getting_started/#configure-rules-for-aggregating-scraped-data-into-new-time-series) 是用于定义监控指标的逻辑规则，包括：
+
+- 记录规则：预计算复杂查询并存储为新时间序列以提升性能，而不需要每次都实时计算复杂的查询表达式。
+- 告警规则：定义告警条件并触发通知
+
+4）启动 Prometheus：
+
+```bash
+./prometheus --config.file=prometheus.yml
+```
+
+启动成功后会在 9090 端口提供服务：
+
+![image-20260508215432746](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508215432746.png)
+
+5）访问 [http://localhost:9090](http://localhost:9090/) 进入管理界面，建议开启本地时间（不然时间可能少 8 个小时）：
+
+![image-20260508215502370](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508215502370.png)
+
+访问 http://localhost:9090/metrics 可以看到 Prometheus 自身暴露的指标数据：
+
+![image-20260508215520896](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508215520896.png)
+
+这就是 Prometheus 期望的指标数据格式，每个应用都需要在 `/metrics` 端点暴露类似的数据。
+
+6）在 Prometheus 查询界面可以输入 [PromQL 表达式](https://prometheus.io/docs/prometheus/latest/querying/basics/) 查看指标：
+
+```plsql
+prometheus_target_interval_length_seconds
+```
+
+这个指标记录了 ⁢⁢⁢Prometheus 抓取目标‍‍‍之间的实际时间间隔，比如你配置‌‌‌每 15 秒抓取一次，但实际可‎‎‎能是 14.8 秒或 15.2‏‏‏ 秒，这个指标就记录这些实际值。
+
+![image-20260508215607046](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508215607046.png)
+
+结果中的每⁢⁢⁢一行都是一个时‍间‍序‍列，大括号‌内的‌是标‌签（‎维度）。‎其中：
+
+- `quantile="0.01"` 表示第 1 百分位数（最快的 1%）
+- `quantile="0.5"` 表示第 50 百分位数（中位数）
+- `quantile="0.99"` 表示第 99 百分位数（最慢的 1%）
+
+这表示 99% 的抓取都在 15.0012 秒以内完成。
+
+还可以更精确地查询特定百分位数：
+
+```plsql
+prometheus_target_interval_length_seconds{quantile="0.99"}
+```
+
+7）在 Gr⁢⁢⁢aph 页签可以查看可‍‍‍视化图表，比如计算过去‌‌‌ 1 分钟内 Prom‎‎‎etheus 每秒平均‏‏‏创建的内存数据块数：
+
+```plsql
+rate(prometheus_tsdb_head_chunks_created_total[1m])
+```
+
+如图：
+
+![image-20260508215704331](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508215704331.png)
+
+#### Grafana 安装
+
+1）访问 [Grafana 下载页面](https://grafana.com/grafana/download)，根据操作系统选择对应的安装包：
+
+2）按照对应系统的 [安装文档](https://grafana.com/docs/grafana/latest/setup-grafana/installation/) 进行安装。比如 Windows 系统直接执行 `grafana-server.exe`，Mac 系统执行下列命令：
+
+```bash
+./bin/grafana server
+```
+
+启动成功的日志信息：
+
+![image-20260508215908948](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508215908948.png)
+
+3）访问 [http://localhost:3000](http://localhost:3000/) 查看看板，默认登录账号密码都是 `admin`：
+
+#### Grafana 整合 Prometheus
+
+Grafana 与 Prometheus 打配合的 [工作原理](https://grafana.com/docs/grafana/latest/datasources/prometheus/) 很简单：Grafana 通过 HTTP API 从 Prometheus 查询数据，然后以图表形式展示。用户可以编写 PromQL 表达式来实现灵活的数据分析。
+
+1）参考 [官方文档](https://grafana.com/docs/grafana/latest/getting-started/get-started-grafana-prometheus/)，登录 Grafana 后，需要先添加 Prometheus 作为数据源：
+
+![image-20260508221123951](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508221123951.png)
+
+配置 Prometheus 服务器地址，然后测试连接：
+
+![image-20260508221138775](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508221138775.png)
+
+💡 除了手动⁢⁢⁢配置外，Grafana 还‍‍‍支持通过 Provisio‌‌‌ning 配置文件自动导入‎‎‎数据源和仪表板，这在自动化‏‏‏部署（或者多环境）中很有用。
+
+2）快速导入现成的仪表板模板：
+
+![image-20260508221158890](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508221158890.png)
+
+3）进入看板页面，查看导入的看板：
+
+![image-20260508221211434](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508221211434.png)
+
+4）查看看⁢⁢⁢板详情，一个仪‍表‍板‍可以包含多‌个 ‌Pa‌nel‎（图表‎面板）‎：
+
+![image-20260508221224931](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508221224931.png)
+
+每个 Panel 都可以查看具体的数据、状态和查询语句：
+
+![image-20260508221239716](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508221239716.png)
+
+![image-20260508221249136](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508221249136.png)
+
+![image-20260508221256142](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508221256142.png)
+
+5）右上角⁢⁢⁢可以将整个仪表‍板‍导‍出为 JS‌ON‌ 格‌式，便‎于分享‎和备份‎：
+
+![image-20260508221311360](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508221311360.png)
+
+![image-20260508221320594](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508221320594.png)
+
+同样也可以通过导入 JSON 快速创建仪表板：
+
+![image-20260508221331181](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508221331181.png)
+
+### 开发实现
+
+#### 1、引入依赖
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-registry-prometheus</artifactId>
+</dependency>
+
+```
+
+1）[spring-boot-starter-actuator](https://docs.spring.io/spring-boot/reference/actuator/enabling.html)：Actuator 提供生产就绪的监控基础设施，暴露各种管理和监控端点。它是应用与外部监控系统交互的窗口，但本身不负责指标数据的收集。
+
+2）micromete⁢⁢⁢r-core：Micrometer 是真正‍‍‍的指标收集引擎，负责收集 JVM、HTTP‌‌‌、数据库等各种指标数据。它提供统一的 AP‎‎‎I 让开发者可以创建自定义指标（类似于一个‏‏‏门面），是整个监控体系的数据生产者。
+
+3）[micrometer-registry-prometheus](https://docs.micrometer.io/micrometer/reference/)：Prometheus Registry 专门负责将 Micrometer 收集的指标数据转换为 Prometheus 格式。它创[/actuator/prometheus](https://docs.spring.io/spring-boot/reference/actuator/metrics.html#actuator.metrics.export.prometheus) 端点，让 Prometheus 服务器可以直接拉取标准格式的监控数据。
+
+Prometheus 可以定期访问 `/actuator/prometheus` 端点拉取指标数据，实现对 Spring Boot 应用的持续监控和告警。
+
+总结一下作用：
+
+- spring-boot-starter-actuator = 端点提供者（开门的）
+- micrometer-core = 数据收集者（干活的）
+- micrometer-registry-prometheus = 格式转换者（翻译的）
+- Prometheus = 数据拉取者（消费的）
+
+#### 2、编写配置
+
+在 `application.yml` 中添加 Actuator 配置，暴露监控端点：
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+```
+
+重启项目后，可以访问端点验证配置。比如健康检查端点：http://localhost:8123/api/actuator/health
+
+Prometheus 指标端点：http://localhost:8123/api/actuator/prometheus，可以看到 Spring Boot 默认提供的各种系统指标。
+
+#### 3、监控上下文
+
+由于需要在监⁢⁢⁢听器中获取业务维度信息‍‍‍（比如 appId、u‌‌‌serId），我们可以‎‎‎通过 ThreadLo‏‏‏cal 来传递这些参数。
+
+1）在 `monitor` 包下定义上下文类 MonitorContext：
+
+```java
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class MonitorContext implements Serializable {
+
+    private String userId;
+
+    private String appId;
+
+    @Serial
+    private static final long serialVersionUID = 1L;
+}
+
+```
+
+还可以按需添加 `requestId`、`chatHistoryId` 等字段。
+
+2）定义上⁢⁢⁢下文持有者 Moni‍‍‍torContext‌‌‌Holder，提供 ‎‎‎ThreadLoca‏‏‏l 的读、写、清除方法：
+
+```java
+@Slf4j
+public class MonitorContextHolder {
+
+    private static final ThreadLocal<MonitorContext> CONTEXT_HOLDER = new ThreadLocal<>();
+
+    /**
+     * 设置监控上下文
+     */
+    public static void setContext(MonitorContext context) {
+        CONTEXT_HOLDER.set(context);
+    }
+
+    /**
+     * 获取当前监控上下文
+     */
+    public static MonitorContext getContext() {
+        return CONTEXT_HOLDER.get();
+    }
+
+    /**
+     * 清除监控上下文
+     */
+    public static void clearContext() {
+        CONTEXT_HOLDER.remove();
+    }
+}
+```
+
+3）在 `AppServiceImpl` 的 `chatToGenCode` 方法中设置上下文，并在 AI 调用流结束时清理：
+
+```java
+// 5. 通过校验后，添加用户消息到对话历史
+chatHistoryService.addChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
+// 6. 设置监控上下文
+MonitorContextHolder.setContext(
+        MonitorContext.builder()
+                .userId(loginUser.getId().toString())
+                .appId(appId.toString())
+                .build()
+);
+// 7. 调用 AI 生成代码（流式）
+Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenTypeEnum, appId);
+// 8. 收集 AI 响应内容并在完成后记录到对话历史
+return streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenTypeEnum)
+        .doFinally(signalType -> {
+            // 流结束时清理（无论成功/失败/取消）
+            MonitorContextHolder.clearContext();
+        });
+
+```
+
+注意清理时⁢⁢⁢机应该是在流结束‍‍时‍，而不是方法返‌‌回值‌之前，这样能‎‎确保整‎个请求周期‏‏内都能获‏取到上下文信息。
+
+#### 4、指标收集器
+
+编写指标收⁢⁢⁢集器，负责收集‍业‍务‍数据并转换‌为 ‌Pr‌ome‎the‎us‎ 指‏标。
+
+这一步不用想太多，尽量把 **最细粒度的数据** 按照维度分类统计就好。
+
+指标收集器⁢⁢⁢需要提供几个方‍法‍，‍分别统计请‌求信‌息、‌错误信‎息、T‎oke‎n‏ 消耗、‏响应时间‏：
+
+```java
+@Component
+@Slf4j
+public class AiModelMetricsCollector {
+
+    @Resource
+    private MeterRegistry meterRegistry;
+
+    // 缓存已创建的指标，避免重复创建（按指标类型分离缓存）
+    private final ConcurrentMap<String, Counter> requestCountersCache = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> errorCountersCache = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> tokenCountersCache = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Timer> responseTimersCache = new ConcurrentHashMap<>();
+
+    /**
+     * 记录请求次数
+     */
+    public void recordRequest(String userId, String appId, String modelName, String status) {
+        String key = String.format("%s_%s_%s_%s", userId, appId, modelName, status);
+        Counter counter = requestCountersCache.computeIfAbsent(key, k ->
+                Counter.builder("ai_model_requests_total")
+                        .description("AI模型总请求次数")
+                        .tag("user_id", userId)
+                        .tag("app_id", appId)
+                        .tag("model_name", modelName)
+                        .tag("status", status)
+                        .register(meterRegistry)
+        );
+        counter.increment();
+    }
+
+    /**
+     * 记录错误
+     */
+    public void recordError(String userId, String appId, String modelName, String errorMessage) {
+        String key = String.format("%s_%s_%s_%s", userId, appId, modelName, errorMessage);
+        Counter counter = errorCountersCache.computeIfAbsent(key, k ->
+                Counter.builder("ai_model_errors_total")
+                        .description("AI模型错误次数")
+                        .tag("user_id", userId)
+                        .tag("app_id", appId)
+                        .tag("model_name", modelName)
+                        .tag("error_message", errorMessage)
+                        .register(meterRegistry)
+        );
+        counter.increment();
+    }
+
+    /**
+     * 记录Token消耗
+     */
+    public void recordTokenUsage(String userId, String appId, String modelName,
+                                 String tokenType, long tokenCount) {
+        String key = String.format("%s_%s_%s_%s", userId, appId, modelName, tokenType);
+        Counter counter = tokenCountersCache.computeIfAbsent(key, k ->
+                Counter.builder("ai_model_tokens_total")
+                        .description("AI模型Token消耗总数")
+                        .tag("user_id", userId)
+                        .tag("app_id", appId)
+                        .tag("model_name", modelName)
+                        .tag("token_type", tokenType)
+                        .register(meterRegistry)
+        );
+        counter.increment(tokenCount);
+    }
+
+    /**
+     * 记录响应时间
+     */
+    public void recordResponseTime(String userId, String appId, String modelName, Duration duration) {
+        String key = String.format("%s_%s_%s", userId, appId, modelName);
+        Timer timer = responseTimersCache.computeIfAbsent(key, k ->
+                Timer.builder("ai_model_response_duration_seconds")
+                        .description("AI模型响应时间")
+                        .tag("user_id", userId)
+                        .tag("app_id", appId)
+                        .tag("model_name", modelName)
+                        .register(meterRegistry)
+        );
+        timer.record(duration);
+    }
+}
+
+```
+
+这里的几个关键点：
+
+1. 选择合适的指标类型：Counter 用于计数（请求次数、错误次数、Token 数量）；Timer 用于时间测量（AI 模型响应时间）
+2. 使用缓存避免统计对象重复注册：Micrometer 会为相同的维度组合创建唯一的指标，通过缓存可以重用同一个 Counter / Timer 对象，避免每次调用都执行 `Counter.builder()...register()` 操作。**（这是亮点！！！）**
+
+#### 5、AI 调用监听器
+
+编写 La⁢⁢⁢ngChain‍4‍j‍ 监听器来‌触发‌指标‌收集，‎这是整‎个监控‎体‏系的核心‏：
+
+```java
+@Component
+@Slf4j
+public class AiModelMonitorListener implements ChatModelListener {
+
+    // 用于存储请求开始时间的键
+    private static final String REQUEST_START_TIME_KEY = "request_start_time";
+    // 用于监控上下文传递（因为请求和响应事件的触发不是同一个线程）
+    private static final String MONITOR_CONTEXT_KEY = "monitor_context";
+    
+    @Resource
+    private AiModelMetricsCollector aiModelMetricsCollector;
+
+    @Override
+    public void onRequest(ChatModelRequestContext requestContext) {
+        // 记录请求开始时间
+        requestContext.attributes().put(REQUEST_START_TIME_KEY, Instant.now());
+        // 从监控上下文中获取信息
+        MonitorContext context = MonitorContextHolder.getContext();
+        String userId = context.getUserId();
+        String appId = context.getAppId();
+        requestContext.attributes().put(MONITOR_CONTEXT_KEY, context);
+        // 获取模型名称
+        String modelName = requestContext.chatRequest().modelName();
+        // 记录请求指标
+        aiModelMetricsCollector.recordRequest(userId, appId, modelName, "started");
+    }
+
+    @Override
+    public void onResponse(ChatModelResponseContext responseContext) {
+        // 从属性中获取监控信息（由 onRequest 方法存储）
+        Map<Object, Object> attributes = responseContext.attributes();
+        // 从监控上下文中获取信息
+        MonitorContext context = (MonitorContext) attributes.get(MONITOR_CONTEXT_KEY);
+        String userId = context.getUserId();
+        String appId = context.getAppId();
+        // 获取模型名称
+        String modelName = responseContext.chatResponse().modelName();
+        // 记录成功请求
+        aiModelMetricsCollector.recordRequest(userId, appId, modelName, "success");
+        // 记录响应时间
+        recordResponseTime(attributes, userId, appId, modelName);
+        // 记录 Token 使用情况
+        recordTokenUsage(responseContext, userId, appId, modelName);
+    }
+
+    @Override
+    public void onError(ChatModelErrorContext errorContext) {
+        // 从监控上下文中获取信息
+        MonitorContext context = MonitorContextHolder.getContext();
+        String userId = context.getUserId();
+        String appId = context.getAppId();
+        // 获取模型名称和错误类型
+        String modelName = errorContext.chatRequest().modelName();
+        String errorMessage = errorContext.error().getMessage();
+        // 记录失败请求
+        aiModelMetricsCollector.recordRequest(userId, appId, modelName, "error");
+        aiModelMetricsCollector.recordError(userId, appId, modelName, errorMessage);
+        // 记录响应时间（即使是错误响应）
+        Map<Object, Object> attributes = errorContext.attributes();
+        recordResponseTime(attributes, userId, appId, modelName);
+    }
+
+
+    /**
+     * 记录响应时间
+     */
+    private void recordResponseTime(Map<Object, Object> attributes, String userId, String appId, String modelName) {
+        Instant startTime = (Instant) attributes.get(REQUEST_START_TIME_KEY);
+        Duration responseTime = Duration.between(startTime, Instant.now());
+        aiModelMetricsCollector.recordResponseTime(userId, appId, modelName, responseTime);
+    }
+
+    /**
+     * 记录Token使用情况
+     */
+    private void recordTokenUsage(ChatModelResponseContext responseContext, String userId, String appId, String modelName) {
+        TokenUsage tokenUsage = responseContext.chatResponse().metadata().tokenUsage();
+        if (tokenUsage != null) {
+            aiModelMetricsCollector.recordTokenUsage(userId, appId, modelName, "input", tokenUsage.inputTokenCount());
+            aiModelMetricsCollector.recordTokenUsage(userId, appId, modelName, "output", tokenUsage.outputTokenCount());
+            aiModelMetricsCollector.recordTokenUsage(userId, appId, modelName, "total", tokenUsage.totalTokenCount());
+        }
+    }
+}
+
+```
+
+有几个重要细节需要注意：
+
+1. 线程切换问题：请求监听在主线程，但响应监听可能在另一个线程，所以要通过 AI context 的 attributes 传递参数。
+2. 时间计算：在请求开始时记录时间戳，在响应完成时计算耗时。
+3. 错误处理：即使发生错误也要记录响应时间，便于分析错误请求的特征。
+
+然后需要将监听器注册到 AI 模型配置中。修改 `ReasoningStreamingChatModelConfig` 和 `StreamingChatModelConfig`：
+
+```java
+@Resource
+private AiModelMonitorListener aiModelMonitorListener;
+
+@Bean
+@Scope("prototype")
+public StreamingChatModel streamingChatModelPrototype() {
+    return OpenAiStreamingChatModel.builder()
+            .apiKey(apiKey)
+            .baseUrl(baseUrl)
+            .modelName(modelName)
+            .maxTokens(maxTokens)
+            .temperature(temperature)
+            .logRequests(logRequests)
+            .logResponses(logResponses)
+            .listeners(List.of(aiModelMonitorListener))
+            .build();
+}
+
+```
+
+#### 6、测试验证
+
+通过前端发⁢⁢⁢起一次 AI 对话‍‍‍请求（需要调用 c‌‌‌hatToGenC‎‎‎ode 方法），看‏‏‏看会不会触发监听器的方法。
+
+成功触发请求监听，能够获取到上下文信息：
+
+![image-20260508232638774](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508232638774.png)
+
+触发响应监听，能够获取到请求时间和上下文信息：
+
+![image-20260508232648748](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508232648748.png)
+
+访问 http://localhost:8123/api/actuator/prometheus 查看指标数据：
+
+![image-20260508232659884](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508232659884.png)
+
+#### 7、Prometheus 配置
+
+现在需要配⁢⁢⁢置 Prometh‍‍‍eus 定期从我们‌‌‌的应用拉取监控‎‎数据‎。在项目内创建配置‏‏‏文件，便于版本管理：
+
+```yaml
+# Prometheus 配置文件
+global:
+  scrape_interval: 15s      # 全局抓取间隔
+  evaluation_interval: 15s  # 规则评估间隔
+
+# 告警管理器配置 (可选)
+alerting:
+ alertmanagers:
+   - static_configs:
+       - targets:
+         # - alertmanager:9093
+
+# 规则文件配置
+rule_files:
+  # - "alert_rules.yml"  # 可以添加告警规则
+
+# 抓取配置
+scrape_configs:
+  # Prometheus 自身监控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Spring Boot 应用监控
+  - job_name: 'ai-zero-code-platform'
+    metrics_path: '/api/actuator/prometheus'  # Spring Boot Actuator 端点
+    static_configs:
+      - targets: ['localhost:8123']  # 应用服务器地址
+    scrape_interval: 10s  # 每 10 秒抓取一次
+    scrape_timeout: 10s   # 抓取超时时间
+
+```
+
+然后使用新配置启动 Prometheus：
+
+```bash
+./prometheus --config.file=<配置文件路径>
+```
+
+在 Prometheus 的 `Status -> Target health` 页面可以查看抓取状态：
+
+![image-20260508232822936](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508232822936.png)
+
+测试查询我们自定义的指标：
+
+![image-20260508232842313](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260508232842313.png)
+
+#### 8、Grafana 可视化监控配置
+
+手动创建图表⁢⁢⁢比较麻烦，更高效的方式是让 A‍‍‍I 帮我们生成完整的看板 JS‌‌‌ON 配置。需要给 AI 提供‎‎‎需求说明、数据样例和 Graf‏‏‏ana 规范，提示词如下：
+
+```markdown
+帮我根据分析需求、数据上报相关代码、示例从 Prometheus 收集到的数据，来生成 Grafana 看板的 JSON 导入代码，全部汇总到一个看板中。
+
+相关的规范参考：https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/view-dashboard-json-model/
+
+## 需求
+
+// ... 补充分析需求
+
+## 数据上报相关代码
+
+// ... 补充 AiModelMetricsCollector.java 的代码
+
+## 示例收集到的数据
+
+HELP ai_model_requests_total AI模型总请求次数
+TYPE ai_model_requests_total counter
+ai_model_requests_total{app_id="313129227198590976",model_name="deepseek-chat",status="started",user_id="302588523967918080"} 2.0
+ai_model_requests_total{app_id="313129227198590976",model_name="deepseek-chat",status="success",user_id="302588523967918080"} 2.0
+
+HELP ai_model_response_duration_seconds AI模型响应时间
+TYPE ai_model_response_duration_seconds summary
+ai_model_response_duration_seconds_count{app_id="313129227198590976",model_name="deepseek-chat",user_id="302588523967918080"} 2
+ai_model_response_duration_seconds_sum{app_id="313129227198590976",model_name="deepseek-chat",user_id="302588523967918080"} 91.285863
+
+HELP ai_model_tokens_total AI模型Token消耗总数
+TYPE ai_model_tokens_total counter
+ai_model_tokens_total{app_id="313129227198590976",model_name="deepseek-chat",token_type="input",user_id="302588523967918080"} 1321.0
+ai_model_tokens_total{app_id="313129227198590976",model_name="deepseek-chat",token_type="output",user_id="302588523967918080"} 519.0
+ai_model_tokens_total{app_id="313129227198590976",model_name="deepseek-chat",token_type="total",user_id="302588523967918080"} 1840.0
+
+```
+
+可以通过导入生成的 JSON 配置快速创建完整的看板：
+
+```json
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 5,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "概览指标",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "sum(ai_model_requests_total{status=\"success\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "总成功请求数",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "sum(ai_model_tokens_total{token_type=\"total\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "总Token消耗",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "sum(ai_model_response_duration_seconds_sum) / sum(ai_model_response_duration_seconds_count)",
+          "refId": "A"
+        }
+      ],
+      "title": "平均响应时间",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "sum(ai_model_errors_total) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "title": "总错误数",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "id": 12,
+      "panels": [],
+      "title": "Token消耗分析",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "sum by (model_name) (ai_model_tokens_total{token_type=\"input\"})",
+          "legendFormat": "输入Token - {{model_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (model_name) (ai_model_tokens_total{token_type=\"output\"})",
+          "legendFormat": "输出Token - {{model_name}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Token消耗累积趋势",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "sum by (token_type) (ai_model_tokens_total{token_type!=\"total\"})",
+          "legendFormat": "{{token_type}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Token类型分布",
+      "type": "piechart"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 6,
+      "panels": [],
+      "title": "模型调用分析",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "sum by (model_name) (increase(ai_model_requests_total{status=\"success\"}[5m]))",
+          "legendFormat": "{{model_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "模型调用次数趋势（每5分钟）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "sum by (model_name) (ai_model_response_duration_seconds_sum) / sum by (model_name) (ai_model_response_duration_seconds_count)",
+          "legendFormat": "{{model_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "模型平均响应时间",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "id": 15,
+      "panels": [],
+      "title": "排行榜",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 28
+      },
+      "id": 16,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Value"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "topk(10, sum by (app_id) (ai_model_requests_total{status=\"success\"}))",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "热门应用排行（调用次数）",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "Value": "调用次数",
+              "app_id": "应用ID"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 28
+      },
+      "id": 17,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Value"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "topk(10, sum by (user_id) (ai_model_requests_total{status=\"success\"}))",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "用户活跃排行（调用次数）",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "Value": "调用次数",
+              "user_id": "用户ID"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 28
+      },
+      "id": 18,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Value"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "topk(10, sum by (app_id) (ai_model_tokens_total{token_type=\"total\"}))",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "应用Token消耗排行",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "Value": "Token消耗",
+              "app_id": "应用ID"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 28
+      },
+      "id": 19,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Value"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "topk(10, sum by (user_id) (ai_model_tokens_total{token_type=\"total\"}))",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "用户Token消耗排行",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "Value": "Token消耗",
+              "user_id": "用户ID"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "id": 20,
+      "panels": [],
+      "title": "错误分析",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 37
+      },
+      "id": 21,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "rate(ai_model_errors_total[5m])",
+          "legendFormat": "{{model_name}} - {{error_message}}",
+          "refId": "A"
+        }
+      ],
+      "title": "错误率趋势",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 37
+      },
+      "id": 22,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "expr": "sum by (error_message) (increase(ai_model_errors_total[$__range]))",
+          "legendFormat": "{{error_message}}",
+          "refId": "A"
+        }
+      ],
+      "title": "错误类型分布",
+      "type": "piechart"
+    }
+  ],
+  "preload": false,
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "tags": [
+    "ai",
+    "model",
+    "monitoring"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(ai_model_requests_total, model_name)",
+        "includeAll": true,
+        "label": "模型",
+        "multi": true,
+        "name": "model",
+        "options": [],
+        "query": {
+          "query": "label_values(ai_model_requests_total, model_name)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(ai_model_requests_total, app_id)",
+        "includeAll": true,
+        "label": "应用",
+        "multi": true,
+        "name": "app",
+        "options": [],
+        "query": {
+          "query": "label_values(ai_model_requests_total, app_id)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(ai_model_requests_total, user_id)",
+        "includeAll": true,
+        "label": "用户",
+        "multi": true,
+        "name": "user",
+        "options": [],
+        "query": {
+          "query": "label_values(ai_model_requests_total, user_id)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "AI模型监控看板",
+  "uid": "ai-model-monitoring",
+  "version": 17
+}
+```
+
