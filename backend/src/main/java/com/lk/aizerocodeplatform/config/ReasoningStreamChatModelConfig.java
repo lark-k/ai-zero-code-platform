@@ -1,12 +1,16 @@
 package com.lk.aizerocodeplatform.config;
 
+import com.lk.aizerocodeplatform.monitor.AiModelMonitorListener;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import jakarta.annotation.Resource;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
+
+import java.util.List;
 
 /**
  * @Author 梁科
@@ -30,6 +34,9 @@ public class ReasoningStreamChatModelConfig {
 
     private boolean logResponses;
 
+    @Resource
+    private AiModelMonitorListener aiModelMonitorListener;
+
 
     @Scope("prototype")
     @Bean
@@ -42,6 +49,7 @@ public class ReasoningStreamChatModelConfig {
                 .maxTokens(maxTokens)
                 .logRequests(logRequests)
                 .logResponses(logResponses)
+                .listeners(List.of(aiModelMonitorListener))
                 .build();
     }
 }

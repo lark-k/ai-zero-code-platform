@@ -46,3 +46,12 @@ mybatis-flex: # 配置mybatis-flex
     logic-delete-column: isDelete
     normal-value-of-logic-delete: 0
     deleted-value-of-logic-delete: 1
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always

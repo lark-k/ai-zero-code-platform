@@ -22,6 +22,8 @@ import com.lk.aizerocodeplatform.model.entity.User;
 import com.lk.aizerocodeplatform.model.vo.app.AppVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserVO;
+import com.lk.aizerocodeplatform.monitor.MonitorContext;
+import com.lk.aizerocodeplatform.monitor.MonitorContextHolder;
 import com.lk.aizerocodeplatform.service.ChatHistoryService;
 import com.lk.aizerocodeplatform.service.OssUploadService;
 import com.lk.aizerocodeplatform.service.UserService;
@@ -455,6 +457,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         // 将用户消息保存到对话历史
         chatHistoryService.addChatHistory(appId, userLoginVO.getId(), message, ChatMessageTypeEnum.User.getValue());
+        // 设置监控上下文到ThreadLocal中
+        MonitorContextHolder.setContext(
+                MonitorContext.builder()
+                        .userId(userLoginVO.getId().toString())
+                        .appId(appId.toString())
+                        .build()
+        );
         // 获取代码生成类型
         String codeGenType = app.getCodeGenType();
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getByValue(codeGenType);
@@ -463,7 +472,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         // 调用门面类，获取与AI对话的回复内容
         Flux<String> codeContentStream = aiCodeGenFacade.generateCodeAndSaveStream(message, codeGenTypeEnum, appId);
-        return streamHandlerExecutor.doExecute(codeContentStream, chatHistoryService, appId, userLoginVO, codeGenTypeEnum);
+        return streamHandlerExecutor
+                .doExecute(codeContentStream, chatHistoryService, appId, userLoginVO, codeGenTypeEnum)
+                // 清空监控上下文ThreadLocal防止内存泄露
+                .doFinally(signalType -> MonitorContextHolder.clearContext());
     }
 
     @Override
