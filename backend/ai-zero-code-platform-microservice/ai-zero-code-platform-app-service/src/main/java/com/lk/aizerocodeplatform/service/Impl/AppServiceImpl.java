@@ -24,16 +24,13 @@ import com.lk.aizerocodeplatform.model.vo.user.UserLoginVO;
 import com.lk.aizerocodeplatform.model.vo.user.UserVO;
 import com.lk.aizerocodeplatform.monitor.MonitorContext;
 import com.lk.aizerocodeplatform.monitor.MonitorContextHolder;
-import com.lk.aizerocodeplatform.service.ChatHistoryService;
-import com.lk.aizerocodeplatform.service.OssUploadService;
-import com.lk.aizerocodeplatform.service.UserService;
+import com.lk.aizerocodeplatform.service.*;
 import com.lk.aizerocodeplatform.tools.WebScreenShotCmdUtils;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.lk.aizerocodeplatform.model.entity.App;
 import com.lk.aizerocodeplatform.mapper.AppMapper;
-import com.lk.aizerocodeplatform.service.AppService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -47,10 +44,7 @@ import reactor.core.publisher.Flux;
 import java.io.File;
 import java.io.Serializable;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -84,6 +78,14 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private Integer serverPort;
     @Value("${server.servlet.context-path:/api}")
     private String contextPath;
+    /**
+     * 应用 ES 搜索服务。
+     * <p>
+     * 只负责从 ES 查出符合条件的 appId 列表。
+     * 后续仍然回 MySQL 查询 App，再复用当前 getAppVoListByAppList 方法封装作者信息。
+     */
+    @Resource
+    private AppEsSearchService appEsSearchService;
 
     @Override
     public Long addApp(AddAppDTO addAppDTO, HttpServletRequest request) {
@@ -222,17 +224,51 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         ThrowUtils.throwIf(userLoginVo == null, ErrorCode.NOT_LOGIN_ERROR);
         // 只能查询当前登录用户的应用信息
         queryAppDTO.setUserId(userLoginVo.getId());
-        // 根据查询请求参数获取封装的查询条件
-        QueryWrapper queryWrapper = getQueryWrapper(queryAppDTO);
-        Page<App> pageOfApp = this.page(Page.of(pageNum, pageSize), queryWrapper);
-        // 获取分页中的App全部信息
-        List<App> pageOfAppRecords = pageOfApp.getRecords();
-        // 将List<App>  ->   List<AppVO>
-        List<AppVO> pageOfAppVoRecords = getAppVoListByAppList(pageOfAppRecords);
-        Page<AppVO> appVoPage = new Page<>(pageNum, pageSize, pageOfApp.getTotalRow());
-        appVoPage.setRecords(pageOfAppVoRecords);
-        appVoPage.setTotalPage(pageOfApp.getTotalPage());
-        return appVoPage;
+
+        // 1. 先从 ES 查询符合条件的应用 id。
+        // ES 负责全文检索、过滤、排序和分页。
+        Page<Long> idPage = null;
+        try {
+            // 优先走 ES 搜索。
+            idPage = appEsSearchService.searchAppIds(queryAppDTO);
+            List<Long> ids = idPage.getRecords();
+            // 2. ES 只返回 id，真实应用数据仍然从 MySQL 查。
+            // 这样可以保证 MySQL 仍是主库，避免 ES 数据结构影响业务 VO 封装。
+            List<App> appList = ids.isEmpty()
+                    ? List.of()
+                    : this.listByIds(ids);
+            // 3. listByIds 不保证返回顺序和 ES 命中顺序一致。
+            // 所以这里按 ES 返回的 ids 重新排序。
+            Map<Long, App> appMap = appList.stream()
+                    .collect(Collectors.toMap(App::getId, app -> app));
+            List<App> orderedApps = ids.stream()
+                    .map(appMap::get)
+                    .filter(Objects::nonNull)
+                    .toList();
+            // 4. 复用现有的 VO 转换逻辑。
+            // 这里会把 App 转成 AppVO，并补充 UserVO 作者信息。
+            List<AppVO> appVOList = getAppVoListByAppList(orderedApps);
+            // 5. 构造 MyBatis-Flex Page<AppVO>，保持接口返回结构不变。
+            // 前端无需改接口、无需改字段。
+            Page<AppVO> appVOPage = new Page<>(pageNum, pageSize, idPage.getTotalRow());
+            appVOPage.setRecords(appVOList);
+            appVOPage.setTotalPage(idPage.getTotalPage());
+            return appVOPage;
+        } catch (Exception e) {
+            // ES 异常时降级到原来的 MySQL like 查询。
+            // 这样本地 ES 没启动时，项目仍然可用。
+            // 根据查询请求参数获取封装的查询条件
+            QueryWrapper queryWrapper = getQueryWrapper(queryAppDTO);
+            Page<App> pageOfApp = this.page(Page.of(pageNum, pageSize), queryWrapper);
+            // 获取分页中的App全部信息
+            List<App> pageOfAppRecords = pageOfApp.getRecords();
+            // 将List<App>  ->   List<AppVO>
+            List<AppVO> pageOfAppVoRecords = getAppVoListByAppList(pageOfAppRecords);
+            Page<AppVO> appVoPage = new Page<>(pageNum, pageSize, pageOfApp.getTotalRow());
+            appVoPage.setRecords(pageOfAppVoRecords);
+            appVoPage.setTotalPage(pageOfApp.getTotalPage());
+            return appVoPage;
+        }
     }
 
     @Override
@@ -427,17 +463,49 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         ThrowUtils.throwIf(queryAppDTO == null, ErrorCode.PARAMS_ERROR);
         int pageNum = queryAppDTO.getPageNum();
         int pageSize = queryAppDTO.getPageSize();
-        // 根据查询请求参数获取封装的查询条件
-        QueryWrapper queryWrapper = getQueryWrapper(queryAppDTO);
-        Page<App> pageOfApp = this.page(Page.of(pageNum, pageSize), queryWrapper);
-        // 获取分页中的App全部信息
-        List<App> pageOfAppRecords = pageOfApp.getRecords();
-        // 将List<App>  ->   List<AppVO>
-        List<AppVO> pageOfAppVoRecords = getAppVoListByAppList(pageOfAppRecords);
-        Page<AppVO> appVoPage = new Page<>(pageNum, pageSize, pageOfApp.getTotalRow());
-        appVoPage.setRecords(pageOfAppVoRecords);
-        appVoPage.setTotalPage(pageOfApp.getTotalPage());
-        return appVoPage;
+        // 优先走 ES 搜索。
+        try {
+            // 1. 先从 ES 查询符合条件的应用 id。
+            // ES 负责全文检索、过滤、排序和分页。
+            Page<Long> idPage = appEsSearchService.searchAppIds(queryAppDTO);
+            List<Long> ids = idPage.getRecords();
+            // 2. ES 只返回 id，真实应用数据仍然从 MySQL 查。
+            // 这样可以保证 MySQL 仍是主库，避免 ES 数据结构影响业务 VO 封装。
+            List<App> appList = ids.isEmpty()
+                    ? List.of()
+                    : this.listByIds(ids);
+            // 3. listByIds 不保证返回顺序和 ES 命中顺序一致。
+            // 所以这里按 ES 返回的 ids 重新排序。
+            Map<Long, App> appMap = appList.stream()
+                    .collect(Collectors.toMap(App::getId, app -> app));
+            List<App> orderedApps = ids.stream()
+                    .map(appMap::get)
+                    .filter(Objects::nonNull)
+                    .toList();
+            // 4. 复用现有的 VO 转换逻辑。
+            // 这里会把 App 转成 AppVO，并补充 UserVO 作者信息。
+            List<AppVO> appVOList = getAppVoListByAppList(orderedApps);
+            // 5. 构造 MyBatis-Flex Page<AppVO>，保持接口返回结构不变。
+            // 前端无需改接口、无需改字段。
+            Page<AppVO> appVOPage = new Page<>(pageNum, pageSize, idPage.getTotalRow());
+            appVOPage.setRecords(appVOList);
+            appVOPage.setTotalPage(idPage.getTotalPage());
+            return appVOPage;
+        } catch (Exception e) {
+            // ES 异常时降级到原来的 MySQL like 查询。
+            // 这样本地 ES 没启动时，项目仍然可用。
+            // 根据查询请求参数获取封装的查询条件
+            QueryWrapper queryWrapper = getQueryWrapper(queryAppDTO);
+            Page<App> pageOfApp = this.page(Page.of(pageNum, pageSize), queryWrapper);
+            // 获取分页中的App全部信息
+            List<App> pageOfAppRecords = pageOfApp.getRecords();
+            // 将List<App>  ->   List<AppVO>
+            List<AppVO> pageOfAppVoRecords = getAppVoListByAppList(pageOfAppRecords);
+            Page<AppVO> appVoPage = new Page<>(pageNum, pageSize, pageOfApp.getTotalRow());
+            appVoPage.setRecords(pageOfAppVoRecords);
+            appVoPage.setTotalPage(pageOfApp.getTotalPage());
+            return appVoPage;
+        }
     }
 
     @Override

@@ -132,6 +132,17 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            Elasticsearch 7.17.29 Java 客户端。
+            这里不优先用 spring-boot-starter-data-elasticsearch，
+            因为本机 ES 是 7.17.29，而项目 Spring Boot 是 3.5.x。
+            Spring Boot 3.x 默认更偏 ES 8 客户端生态，直接使用 ES 7 High Level Client 更稳。
+        -->
+        <dependency>
+            <groupId>org.elasticsearch.client</groupId>
+            <artifactId>elasticsearch-rest-high-level-client</artifactId>
+            <version>7.17.29</version>
+        </dependency>
     </dependencies>
 
     <build>

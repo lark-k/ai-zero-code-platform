@@ -65,5 +65,11 @@ dashscope:
   api-key: sk-c289c07edc374dc9bf134d02947bc9b2
   image-model: wanx2.1-t2i-plus
 
-
+elasticsearch:
+  # 本机 ES 地址
+  host: 127.0.0.1
+  # ES 默认 HTTP 端口
+  port: 9200
+  # 本地未开启 HTTPS 时使用 http
+  scheme: http
 

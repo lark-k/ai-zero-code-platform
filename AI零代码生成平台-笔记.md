@@ -12640,3 +12640,121 @@ Higress 提供了多种权限认证插件：![image-20260509235521931](C:/Users/
 
 ![image-20260509235650317](C:/Users/LK/AppData/Roaming/Typora/typora-user-images/image-20260509235650317.png)
 
+# 附录：项目启动流程
+
+## 单体项目模块
+
+将`vite.config.ts`文件进行如下修改：
+
+```tsx
+server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',		先代理到higress网关，通过higress网关将请求转发到对应服务
+        changeOrigin: true,
+      },
+    },
+  },
+```
+
+​																																👇
+
+```ts
+server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8123',		直接代理到后端服务
+        changeOrigin: true,
+      },
+    },
+  },
+```
+
+## 微服务项目模块
+
+- 启动nacos												http://localhost:8848/nacos
+
+- 在wsl的docker中启动higress                http://localhost:8001/                 higress网关的监听端口为8080，在该端口处根据请求转发到具体的微服务
+
+  ```shell
+  docker run -d --rm --name higress-ai -v ${PWD}:/data -e O11Y=on \
+          -p 8001:8001 -p 8080:8080 -p 8443:8443  \
+          higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/all-in-one:latest
+  ```
+
+- 启动Elastic Search                                  http://127.0.0.1:9200
+
+  ```shell
+  ./bin/elasticsearch.bat
+  ```
+
+- 启动kibana                                              http://127.0.0.1:5601
+
+  ```shell
+  ./kibana/bin/kibana.bat
+  ```
+
+- 启动canal
+
+  ```shell
+  ./canal.deployer/bin/startup.bat				监听数据库binlog表的变化，用于收集数据库的最新变化
+  ```
+
+  ```shell
+  ./canal.adapter/bin/startup.bat					将数据库的最新变化同步给ES实现增量同步		默认端口8081
+  ```
+
+  ```shell
+  curl.exe -X POST "http://127.0.0.1:8081/etl/es7/app_index.yml"		首次使用时先使用全量同步
+  ```
+
+- 启动 Prometheus 
+
+- 启动 Grafana
+
+- 启动nginx  -> 用于网站部署
+
+
+
+```text
+浏览器页面
+  ↓
+前端 Vite 开发服务器 localhost:5173
+  ↓
+Vite proxy 代理 /api 请求
+  ↓
+Higress 网关，例如 localhost:8080
+  ↓
+Higress 根据路径分流
+  ↓
+具体微服务
+```
+
+```text
+POST http://localhost:5173/api/user/login
+  ↓
+Vite proxy 转发到 http://localhost:8080/api/user/login
+  ↓
+Higress 匹配 /api/user
+  ↓
+转发到 user-service:8124
+  ↓
+UserController.userLogin()
+  ↓
+查询 MySQL 用户
+  ↓
+写入 Redis Session
+  ↓
+返回登录用户信息给前端
+```
+
+```text
+GET/POST http://localhost:5173/api/app/...
+  ↓
+Vite proxy 转发到 http://localhost:8080/api/app/...
+  ↓
+Higress 匹配 /api/app
+  ↓
+转发到 app-service:8125
+```
+
